@@ -1,0 +1,1136 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Studio OS</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #080a0d;
+      --surface: #10141a;
+      --surface-2: #151b23;
+      --surface-3: #1d2530;
+      --line: #27313f;
+      --muted: #8b98a8;
+      --text: #eef3f8;
+      --soft: #c9d3df;
+      --green: #4fd18b;
+      --yellow: #f2bd58;
+      --red: #ff6f7d;
+      --cyan: #55c8e8;
+      --blue: #7798ff;
+      --magenta: #d679ff;
+      --shadow: 0 18px 60px rgba(0, 0, 0, .38);
+      --radius: 8px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at top left, rgba(85, 200, 232, .14), transparent 28rem),
+        linear-gradient(160deg, #080a0d 0%, #0d1116 48%, #090b0f 100%);
+      color: var(--text);
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+      cursor: pointer;
+    }
+
+    .app-shell {
+      width: min(100%, 430px);
+      min-height: 100vh;
+      margin: 0 auto;
+      background: rgba(8, 10, 13, .72);
+      border-left: 1px solid rgba(255, 255, 255, .05);
+      border-right: 1px solid rgba(255, 255, 255, .05);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .screen {
+      min-height: 100vh;
+      padding: 22px 18px 96px;
+    }
+
+    .login-screen {
+      display: grid;
+      align-content: center;
+      gap: 18px;
+      padding-bottom: 22px;
+    }
+
+    .brand {
+      display: grid;
+      gap: 12px;
+      margin-bottom: 6px;
+    }
+
+    .mark {
+      width: 56px;
+      height: 56px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--cyan), var(--magenta));
+      color: #071015;
+      font-weight: 900;
+      letter-spacing: 0;
+      box-shadow: 0 14px 40px rgba(85, 200, 232, .24);
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 36px;
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      font-size: 24px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      font-size: 16px;
+      line-height: 1.3;
+      letter-spacing: 0;
+    }
+
+    .muted {
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .panel,
+    .case-card,
+    .metric,
+    .finance-row,
+    .pay-row {
+      background: linear-gradient(180deg, rgba(21, 27, 35, .96), rgba(16, 20, 26, .96));
+      border: 1px solid rgba(255, 255, 255, .07);
+      border-radius: var(--radius);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, .18);
+    }
+
+    .panel {
+      padding: 16px;
+    }
+
+    .field {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    label {
+      color: var(--soft);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      min-height: 46px;
+      color: var(--text);
+      background: #0b0f14;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      outline: 0;
+      padding: 11px 12px;
+    }
+
+    textarea {
+      min-height: 92px;
+      resize: vertical;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      border-color: var(--cyan);
+      box-shadow: 0 0 0 3px rgba(85, 200, 232, .14);
+    }
+
+    .role-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin: 2px 0 14px;
+    }
+
+    .role-btn,
+    .chip,
+    .icon-btn,
+    .primary,
+    .ghost {
+      min-height: 42px;
+      border-radius: 8px;
+      color: var(--text);
+      border: 1px solid var(--line);
+      background: var(--surface-2);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-weight: 800;
+    }
+
+    .role-btn {
+      padding: 10px;
+      text-align: center;
+    }
+
+    .role-btn.active,
+    .chip.active {
+      border-color: rgba(85, 200, 232, .8);
+      background: rgba(85, 200, 232, .14);
+      color: #dff8ff;
+    }
+
+    .primary {
+      width: 100%;
+      background: linear-gradient(135deg, var(--cyan), var(--green));
+      color: #061014;
+      border: 0;
+      min-height: 48px;
+    }
+
+    .ghost {
+      background: transparent;
+      min-height: 38px;
+      padding: 0 12px;
+    }
+
+    .error {
+      color: var(--red);
+      min-height: 20px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .user-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 7px 10px;
+      color: var(--soft);
+      background: rgba(16, 20, 26, .78);
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .grid {
+      display: grid;
+      gap: 10px;
+    }
+
+    .metrics {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .metric {
+      min-height: 104px;
+      padding: 14px;
+      display: grid;
+      align-content: space-between;
+      gap: 10px;
+    }
+
+    .metric b {
+      font-size: 23px;
+      letter-spacing: 0;
+    }
+
+    .metric span,
+    .case-meta,
+    .small {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .section-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 22px 0 10px;
+    }
+
+    .filter-row {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 2px 0 12px;
+      scrollbar-width: none;
+    }
+
+    .filter-row::-webkit-scrollbar { display: none; }
+
+    .chip {
+      flex: 0 0 auto;
+      padding: 0 12px;
+      min-height: 36px;
+      font-size: 13px;
+    }
+
+    .case-card {
+      width: 100%;
+      text-align: left;
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .case-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .case-title {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .case-title h3 {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .badge {
+      flex: 0 0 auto;
+      align-self: start;
+      border-radius: 999px;
+      padding: 5px 8px;
+      font-size: 11px;
+      font-weight: 900;
+      color: #081015;
+      background: var(--cyan);
+    }
+
+    .status-新接案 { background: var(--blue); }
+    .status-製作中 { background: var(--yellow); }
+    .status-待驗收 { background: var(--magenta); }
+    .status-已完成 { background: var(--green); }
+    .status-暫緩 { background: var(--red); }
+
+    .progress-track {
+      width: 100%;
+      height: 8px;
+      border-radius: 99px;
+      background: #06090d;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, .06);
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--cyan), var(--green));
+    }
+
+    .split {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .bottom-nav {
+      position: fixed;
+      left: 50%;
+      bottom: 0;
+      transform: translateX(-50%);
+      width: min(100%, 430px);
+      height: 76px;
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: 1fr;
+      gap: 4px;
+      padding: 8px 10px 12px;
+      background: rgba(10, 13, 17, .92);
+      border-top: 1px solid rgba(255, 255, 255, .08);
+      backdrop-filter: blur(18px);
+      z-index: 20;
+    }
+
+    .nav-btn {
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      display: grid;
+      place-items: center;
+      align-content: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 800;
+      min-width: 0;
+    }
+
+    .nav-btn svg {
+      width: 21px;
+      height: 21px;
+      stroke-width: 2.2;
+    }
+
+    .nav-btn.active {
+      color: var(--text);
+      background: rgba(85, 200, 232, .13);
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      display: none;
+      background: rgba(2, 4, 7, .72);
+      backdrop-filter: blur(12px);
+      align-items: flex-end;
+      justify-content: center;
+    }
+
+    .modal.open {
+      display: flex;
+    }
+
+    .modal-sheet {
+      width: min(100%, 430px);
+      max-height: 88vh;
+      overflow: auto;
+      background: #0c1016;
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 8px 8px 0 0;
+      padding: 16px 16px 26px;
+      box-shadow: var(--shadow);
+    }
+
+    .modal-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      position: sticky;
+      top: -16px;
+      background: #0c1016;
+      padding: 8px 0 14px;
+      z-index: 2;
+    }
+
+    .icon-btn {
+      width: 38px;
+      min-height: 38px;
+      padding: 0;
+      flex: 0 0 auto;
+    }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin: 14px 0;
+    }
+
+    .detail-item {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      min-height: 68px;
+      display: grid;
+      align-content: space-between;
+      gap: 6px;
+    }
+
+    .detail-item strong {
+      font-size: 14px;
+      overflow-wrap: anywhere;
+    }
+
+    .checklist {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .check-item {
+      min-height: 46px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+
+    .check-item input {
+      width: 20px;
+      height: 20px;
+      min-height: 20px;
+      accent-color: var(--green);
+      flex: 0 0 auto;
+    }
+
+    .money-band {
+      border: 1px solid rgba(79, 209, 139, .3);
+      background: rgba(79, 209, 139, .08);
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 12px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .form-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .finance-row,
+    .pay-row {
+      padding: 13px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .pay-row {
+      grid-template-columns: 1fr auto;
+      align-items: center;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    @media (min-width: 431px) {
+      body {
+        padding: 18px 0;
+      }
+
+      .app-shell,
+      .screen {
+        min-height: calc(100vh - 36px);
+      }
+
+      .app-shell {
+        border-radius: 18px;
+        box-shadow: var(--shadow);
+      }
+
+      .bottom-nav {
+        bottom: 18px;
+        border-radius: 0 0 18px 18px;
+      }
+
+      .modal {
+        align-items: center;
+      }
+
+      .modal-sheet {
+        border-radius: 8px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app-shell">
+    <section id="loginScreen" class="screen login-screen">
+      <div class="brand">
+        <div class="mark">OS</div>
+        <div>
+          <h1>Studio OS</h1>
+          <p class="muted">錄音室與樂器教室內部管理系統</p>
+        </div>
+      </div>
+
+      <form id="loginForm" class="panel">
+        <div class="field">
+          <label>登入角色</label>
+          <div id="roleGrid" class="role-grid"></div>
+        </div>
+        <div class="field">
+          <label for="password">密碼</label>
+          <input id="password" type="password" autocomplete="current-password" placeholder="輸入 demo 密碼">
+          <p class="small">Demo 密碼：老闆 boss123；其他角色 staff123；行政 admin123</p>
+        </div>
+        <p id="loginError" class="error"></p>
+        <button class="primary" type="submit">登入</button>
+      </form>
+    </section>
+
+    <section id="appScreen" class="screen hidden">
+      <header class="topbar">
+        <div>
+          <p id="eyebrow" class="muted">Studio OS</p>
+          <h2 id="pageTitle">首頁</h2>
+        </div>
+        <button id="logoutBtn" class="user-pill" type="button"></button>
+      </header>
+
+      <div id="viewRoot"></div>
+    </section>
+
+    <nav id="bottomNav" class="bottom-nav hidden" aria-label="主要導覽"></nav>
+  </main>
+
+  <div id="caseModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <article class="modal-sheet">
+      <div class="modal-head">
+        <div>
+          <p id="modalCode" class="small"></p>
+          <h2 id="modalTitle"></h2>
+        </div>
+        <button id="closeModal" class="icon-btn" type="button" aria-label="關閉">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div id="modalBody"></div>
+    </article>
+  </div>
+
+  <script>
+    const roles = {
+      owner: { label: "老闆", icon: "👑", password: "boss123", isBoss: true },
+      recorder: { label: "錄音師", icon: "🎤", password: "staff123", employee: "錄音師" },
+      arranger: { label: "編曲師", icon: "🎹", password: "staff123", employee: "編曲師" },
+      mixer: { label: "混音師", icon: "🎧", password: "staff123", employee: "混音師" },
+      admin: { label: "行政", icon: "📋", password: "admin123", admin: true }
+    };
+
+    const caseTypes = {
+      "錄音": ["前製會議", "錄音 Session 1", "錄音 Session 2", "人聲剪輯", "初混確認", "交件"],
+      "混音": ["素材確認", "初混版本", "客戶試聽", "修改版本", "最終確認", "交件"],
+      "編曲": ["風格確認", "Demo 製作", "客戶試聽", "編曲完稿", "人聲配合", "交件"],
+      "母帶": ["素材接收", "聲音分析", "母帶處理", "試聽確認", "最終版本", "交件"],
+      "廣告配樂": ["廣告簡報", "風格確認", "初版配樂", "影片對位", "修改", "交件"],
+      "電影配樂": ["劇本分析", "音樂風格會議", "主題曲創作", "配樂錄製", "混音", "交件"]
+    };
+
+    const employees = [
+      { name: "錄音師", role: "錄音師", base: 0, bonusRate: 0 },
+      { name: "編曲師", role: "編曲師", base: 0, bonusRate: 0 },
+      { name: "混音師", role: "混音師", base: 0, bonusRate: 0 }
+    ];
+
+    const state = {
+      selectedRole: "owner",
+      user: null,
+      page: "home",
+      filter: "全部",
+      cases: [],
+      loading: false,
+      apiError: ""
+    };
+
+    const els = {
+      loginScreen: document.querySelector("#loginScreen"),
+      appScreen: document.querySelector("#appScreen"),
+      roleGrid: document.querySelector("#roleGrid"),
+      loginForm: document.querySelector("#loginForm"),
+      password: document.querySelector("#password"),
+      loginError: document.querySelector("#loginError"),
+      logoutBtn: document.querySelector("#logoutBtn"),
+      pageTitle: document.querySelector("#pageTitle"),
+      eyebrow: document.querySelector("#eyebrow"),
+      viewRoot: document.querySelector("#viewRoot"),
+      bottomNav: document.querySelector("#bottomNav"),
+      caseModal: document.querySelector("#caseModal"),
+      closeModal: document.querySelector("#closeModal"),
+      modalTitle: document.querySelector("#modalTitle"),
+      modalCode: document.querySelector("#modalCode"),
+      modalBody: document.querySelector("#modalBody")
+    };
+
+    function money(value) {
+      return Number(value || 0).toLocaleString("zh-TW", {
+        style: "currency",
+        currency: "TWD",
+        maximumFractionDigits: 0
+      });
+    }
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, {
+        headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+        ...options
+      });
+      if (!response.ok) {
+        let message = "資料庫連線或伺服器發生錯誤。";
+        try {
+          const body = await response.json();
+          if (body.error) message = body.error;
+        } catch (_error) {}
+        throw new Error(message);
+      }
+      return response.status === 204 ? null : response.json();
+    }
+
+    async function refreshCases() {
+      state.loading = true;
+      state.apiError = "";
+      renderApp();
+      try {
+        state.cases = await api("/api/cases");
+      } catch (error) {
+        state.apiError = error.message;
+        state.cases = [];
+      } finally {
+        state.loading = false;
+        renderApp();
+      }
+    }
+
+    function visibleCases() {
+      if (!state.user) return [];
+      if (state.user.isBoss || state.user.admin) return state.cases;
+      return state.cases.filter(item => item.owner === state.user.employee);
+    }
+
+    function progressOf(item) {
+      if (!item.checklist.length) return 0;
+      return Math.round(item.checklist.filter(Boolean).length / item.checklist.length * 100);
+    }
+
+    function setRole(role) {
+      state.selectedRole = role;
+      renderRoles();
+    }
+
+    function renderRoles() {
+      els.roleGrid.innerHTML = Object.entries(roles).map(([key, role]) => `
+        <button class="role-btn ${state.selectedRole === key ? "active" : ""}" type="button" data-role="${key}">
+          <span>${role.icon}</span><span>${role.label}</span>
+        </button>
+      `).join("");
+    }
+
+    async function login(event) {
+      event.preventDefault();
+      const role = roles[state.selectedRole];
+      if (els.password.value !== role.password) {
+        els.loginError.textContent = "密碼不正確，請再試一次。";
+        return;
+      }
+      state.user = role;
+      state.page = "home";
+      els.loginError.textContent = "";
+      els.password.value = "";
+      els.loginScreen.classList.add("hidden");
+      els.appScreen.classList.remove("hidden");
+      els.bottomNav.classList.remove("hidden");
+      await refreshCases();
+    }
+
+    function logout() {
+      state.user = null;
+      els.loginScreen.classList.remove("hidden");
+      els.appScreen.classList.add("hidden");
+      els.bottomNav.classList.add("hidden");
+      closeModal();
+    }
+
+    function navItems() {
+      const items = [
+        { key: "home", label: "首頁", icon: "home" },
+        { key: "cases", label: "案件", icon: "briefcase" },
+        { key: "new", label: "新增", icon: "plus" }
+      ];
+      if (state.user.isBoss) items.push({ key: "finance", label: "財務", icon: "chart" });
+      return items;
+    }
+
+    function icon(name) {
+      const paths = {
+        home: '<path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/>',
+        briefcase: '<path d="M10 6V5a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2v1"/><path d="M4 7h16v12H4z"/><path d="M4 12h16"/>',
+        plus: '<path d="M12 5v14M5 12h14"/>',
+        chart: '<path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-5"/><path d="M12 16V8"/><path d="M16 16v-9"/>'
+      };
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">${paths[name]}</svg>`;
+    }
+
+    function renderNav() {
+      els.bottomNav.innerHTML = navItems().map(item => `
+        <button class="nav-btn ${state.page === item.key ? "active" : ""}" type="button" data-page="${item.key}" aria-label="${item.label}">
+          ${icon(item.icon)}
+          <span>${item.label}</span>
+        </button>
+      `).join("");
+    }
+
+    function renderApp() {
+      if (!state.user) return;
+      renderNav();
+      const titleMap = { home: "首頁", cases: "案件管理", new: "新增案件", finance: "財務" };
+      els.pageTitle.textContent = titleMap[state.page];
+      els.eyebrow.textContent = state.user.isBoss ? "老闆視角" : state.user.admin ? "行政視角" : `${state.user.label}視角`;
+      els.logoutBtn.innerHTML = `<span>${state.user.icon}</span><span>登出</span>`;
+      if (state.loading) {
+        els.viewRoot.innerHTML = `<div class="panel"><p class="muted">正在讀取 Zeabur 資料庫...</p></div>`;
+        return;
+      }
+      if (state.apiError) {
+        els.viewRoot.innerHTML = `<div class="panel"><h3>資料庫暫時無法讀取</h3><p class="muted">${state.apiError}</p></div>`;
+        return;
+      }
+      if (state.page === "home") renderHome();
+      if (state.page === "cases") renderCases();
+      if (state.page === "new") renderNewCase();
+      if (state.page === "finance") renderFinance();
+    }
+
+    function stats(items = visibleCases()) {
+      return {
+        total: items.reduce((sum, item) => sum + Number(item.quote || 0), 0),
+        ongoing: items.filter(item => item.status === "製作中").length,
+        review: items.filter(item => item.status === "待驗收").length,
+        done: items.filter(item => item.status === "已完成").length,
+        count: items.length
+      };
+    }
+
+    function payrollFor(name) {
+      const employee = employees.find(item => item.name === name);
+      const doneCases = state.cases.filter(item => item.owner === name && item.status === "已完成");
+      const revenue = doneCases.reduce((sum, item) => sum + Number(item.quote || 0), 0);
+      const bonus = Math.round(revenue * (employee?.bonusRate || 0));
+      return {
+        base: employee?.base || 0,
+        bonus,
+        total: (employee?.base || 0) + bonus,
+        cases: state.cases.filter(item => item.owner === name).length,
+        revenue
+      };
+    }
+
+    function emptyPanel(text = "目前資料庫沒有案件。") {
+      return `<div class="panel"><p class="muted">${text}</p></div>`;
+    }
+
+    function renderHome() {
+      const items = visibleCases();
+      const s = stats(items);
+      if (state.user.isBoss) {
+        els.viewRoot.innerHTML = `
+          <div class="grid metrics">
+            <div class="metric"><span>本月總收入</span><b>${money(s.total)}</b></div>
+            <div class="metric"><span>進行中案件</span><b>${s.ongoing}</b></div>
+            <div class="metric"><span>待驗收</span><b>${s.review}</b></div>
+            <div class="metric"><span>已完成</span><b>${s.done}</b></div>
+          </div>
+          <div class="section-title"><h3>員工概覽</h3></div>
+          <div class="grid">
+            ${employees.map(employee => {
+              const pay = payrollFor(employee.name);
+              return `<div class="pay-row">
+                <div>
+                  <h3>${employee.name}</h3>
+                  <p class="small">${pay.cases} 件案件 · 業績 ${money(pay.revenue)}</p>
+                </div>
+                <strong>${money(pay.total)}</strong>
+              </div>`;
+            }).join("")}
+          </div>
+          <div class="section-title"><h3>近期案件</h3><button class="ghost" type="button" data-page="cases">查看</button></div>
+          <div class="grid">${items.length ? renderCaseCards(items.slice(0, 3)) : emptyPanel()}</div>
+        `;
+        return;
+      }
+
+      const pay = state.user.admin ? null : payrollFor(state.user.employee);
+      els.viewRoot.innerHTML = `
+        <div class="panel">
+          <h2>${state.user.icon} ${state.user.admin ? "行政值班台" : `${state.user.employee}，今天辛苦了`}</h2>
+          <p class="muted">${state.user.admin ? "所有案件進度都在這裡，財務資訊已依權限隱藏。" : "這裡只顯示你負責的案件與本月薪資資料。"}</p>
+        </div>
+        <div class="section-title"><h3>我的摘要</h3></div>
+        <div class="grid metrics">
+          <div class="metric"><span>案件數</span><b>${s.count}</b></div>
+          <div class="metric"><span>待驗收</span><b>${s.review}</b></div>
+          <div class="metric"><span>進行中</span><b>${s.ongoing}</b></div>
+          <div class="metric"><span>本月薪資</span><b>${state.user.admin ? "隱藏" : money(pay.total)}</b></div>
+        </div>
+        <div class="section-title"><h3>案件</h3><button class="ghost" type="button" data-page="cases">查看</button></div>
+        <div class="grid">${items.length ? renderCaseCards(items.slice(0, 3)) : emptyPanel("目前沒有指派給你的案件。")}</div>
+      `;
+    }
+
+    function renderCases() {
+      const statuses = ["全部", "新接案", "製作中", "待驗收", "已完成", "暫緩"];
+      const items = visibleCases().filter(item => state.filter === "全部" || item.status === state.filter);
+      els.viewRoot.innerHTML = `
+        <div class="filter-row">
+          ${statuses.map(status => `<button class="chip ${state.filter === status ? "active" : ""}" type="button" data-filter="${status}">${status}</button>`).join("")}
+        </div>
+        <div class="grid">
+          ${items.length ? renderCaseCards(items) : emptyPanel("目前沒有符合條件的案件。")}
+        </div>
+      `;
+    }
+
+    function renderCaseCards(items) {
+      return items.map(item => `
+        <button class="case-card" type="button" data-case="${item.id}">
+          <div class="case-head">
+            <div class="case-title">
+              <p class="small">${item.id} · ${item.type}</p>
+              <h3>${item.name}</h3>
+              <p class="case-meta">${item.client} · ${item.owner} · ${item.due}</p>
+            </div>
+            <span class="badge status-${item.status}">${item.status}</span>
+          </div>
+          <div>
+            <div class="split"><span class="small">製作進度</span><strong>${progressOf(item)}%</strong></div>
+            <div class="progress-track"><div class="progress-fill" style="width:${progressOf(item)}%"></div></div>
+          </div>
+        </button>
+      `).join("");
+    }
+
+    function renderNewCase() {
+      const canSeeMoney = state.user.isBoss;
+      els.viewRoot.innerHTML = `
+        <form id="caseForm" class="panel">
+          <div class="field"><label for="caseName">案件名稱</label><input id="caseName" required placeholder="案件名稱"></div>
+          <div class="field"><label for="caseType">案件種類</label><select id="caseType">${Object.keys(caseTypes).map(type => `<option>${type}</option>`).join("")}</select></div>
+          <div class="field"><label for="client">客戶名稱</label><input id="client" required placeholder="客戶或品牌名稱"></div>
+          <div class="field"><label for="owner">負責人</label><select id="owner">${employees.map(employee => `<option>${employee.name}</option>`).join("")}</select></div>
+          <div class="grid metrics">
+            <div class="field"><label for="start">開始日期</label><input id="start" type="date" required></div>
+            <div class="field"><label for="due">截止日期</label><input id="due" type="date" required></div>
+          </div>
+          <div class="field"><label for="status">案件狀態</label><select id="status">${["新接案", "製作中", "待驗收", "已完成", "暫緩"].map(status => `<option>${status}</option>`).join("")}</select></div>
+          <div class="field ${canSeeMoney ? "" : "hidden"}"><label for="quote">報價金額</label><input id="quote" type="number" min="0" inputmode="numeric" value="0"></div>
+          <div class="field ${canSeeMoney ? "" : "hidden"}"><label for="cost">預估成本</label><input id="cost" type="number" min="0" inputmode="numeric" value="0"></div>
+          <div class="field"><label for="notes">備註 / 需求說明</label><textarea id="notes" placeholder="客戶需求、參考資料、交付格式"></textarea></div>
+          <button class="primary" type="submit">建立案件</button>
+        </form>
+      `;
+      document.querySelector("#start").value = new Date().toISOString().slice(0, 10);
+    }
+
+    async function createCase(event) {
+      event.preventDefault();
+      const type = document.querySelector("#caseType").value;
+      const payload = {
+        name: document.querySelector("#caseName").value.trim(),
+        type,
+        client: document.querySelector("#client").value.trim(),
+        owner: document.querySelector("#owner").value,
+        start: document.querySelector("#start").value,
+        due: document.querySelector("#due").value,
+        quote: state.user.isBoss ? Number(document.querySelector("#quote").value || 0) : 0,
+        cost: state.user.isBoss ? Number(document.querySelector("#cost").value || 0) : 0,
+        status: document.querySelector("#status").value,
+        notes: document.querySelector("#notes").value.trim()
+      };
+      const item = await api("/api/cases", { method: "POST", body: JSON.stringify(payload) });
+      state.cases.unshift(item);
+      state.page = "cases";
+      state.filter = "全部";
+      renderApp();
+      openCase(item.id);
+    }
+
+    function renderFinance() {
+      const total = state.cases.reduce((sum, item) => sum + item.quote, 0);
+      const paid = state.cases.filter(item => item.status === "已完成").reduce((sum, item) => sum + item.quote, 0);
+      const receivable = state.cases.filter(item => item.status === "待驗收").reduce((sum, item) => sum + item.quote, 0);
+      const active = state.cases.filter(item => item.status === "製作中").reduce((sum, item) => sum + item.quote, 0);
+      const salary = employees.reduce((sum, employee) => sum + payrollFor(employee.name).total, 0);
+      els.viewRoot.innerHTML = `
+        <div class="grid metrics">
+          <div class="metric"><span>本月總案件金額</span><b>${money(total)}</b></div>
+          <div class="metric"><span>已完成收款</span><b>${money(paid)}</b></div>
+          <div class="metric"><span>待收款</span><b>${money(receivable)}</b></div>
+          <div class="metric"><span>進行中總金額</span><b>${money(active)}</b></div>
+        </div>
+        <div class="section-title"><h3>薪資支出</h3><strong>${money(salary)}</strong></div>
+        <div class="grid">
+          ${employees.map(employee => {
+            const pay = payrollFor(employee.name);
+            return `<div class="pay-row">
+              <div><h3>${employee.name}</h3><p class="small">底薪 ${money(pay.base)} · 獎金 ${money(pay.bonus)}</p></div>
+              <strong>${money(pay.total)}</strong>
+            </div>`;
+          }).join("")}
+        </div>
+        <div class="section-title"><h3>案件金額一覽</h3></div>
+        <div class="grid">
+          ${state.cases.length ? state.cases.map(item => `<div class="finance-row">
+            <div class="split"><h3>${item.name}</h3><span class="badge status-${item.status}">${item.status}</span></div>
+            <p class="small">${item.id} · ${item.client} · ${item.owner}</p>
+            <div class="split"><span>報價</span><strong>${money(item.quote)}</strong></div>
+            <div class="split"><span>預估成本</span><strong>${money(item.cost)}</strong></div>
+            <div class="split"><span>預估利潤</span><strong>${money(item.quote - item.cost)}</strong></div>
+          </div>`).join("") : emptyPanel()}
+        </div>
+      `;
+    }
+
+    function openCase(id) {
+      const item = state.cases.find(entry => entry.id === id);
+      if (!item) return;
+      const canSeeMoney = state.user.isBoss;
+      els.modalCode.textContent = `${item.id} · ${item.type}`;
+      els.modalTitle.textContent = item.name;
+      els.modalBody.innerHTML = `
+        <div class="detail-grid">
+          <div class="detail-item"><span class="small">客戶</span><strong>${item.client}</strong></div>
+          <div class="detail-item"><span class="small">負責人</span><strong>${item.owner}</strong></div>
+          <div class="detail-item"><span class="small">開始日期</span><strong>${item.start}</strong></div>
+          <div class="detail-item"><span class="small">截止日期</span><strong>${item.due}</strong></div>
+        </div>
+        <div class="field">
+          <label for="modalStatus">案件狀態</label>
+          <select id="modalStatus" data-status-for="${item.id}">
+            ${["新接案", "製作中", "待驗收", "已完成", "暫緩"].map(status => `<option ${status === item.status ? "selected" : ""}>${status}</option>`).join("")}
+          </select>
+        </div>
+        <div>
+          <div class="split"><h3>製作 Checklist</h3><strong>${progressOf(item)}%</strong></div>
+          <div class="progress-track"><div class="progress-fill" style="width:${progressOf(item)}%"></div></div>
+          <div class="checklist">
+            ${caseTypes[item.type].map((label, index) => `
+              <label class="check-item">
+                <input type="checkbox" ${item.checklist[index] ? "checked" : ""} data-check="${item.id}" data-index="${index}">
+                <span>${label}</span>
+              </label>
+            `).join("")}
+          </div>
+        </div>
+        <div class="${canSeeMoney ? "money-band" : "hidden"}">
+          <div class="split"><span>報價金額</span><strong>${money(item.quote)}</strong></div>
+          <div class="split"><span>預估成本</span><strong>${money(item.cost)}</strong></div>
+          <div class="split"><span>預估利潤</span><strong>${money(item.quote - item.cost)}</strong></div>
+        </div>
+        <div class="section-title"><h3>備註 / 需求</h3></div>
+        <p class="muted">${item.notes || "無備註"}</p>
+        <div class="form-actions">
+          <button class="ghost" type="button" data-delete="${item.id}">刪除</button>
+          <button class="primary" type="button" data-close-modal>完成</button>
+        </div>
+      `;
+      els.caseModal.classList.add("open");
+    }
+
+    function closeModal() {
+      els.caseModal.classList.remove("open");
+    }
+
+    async function updateChecklist(id, index, checked) {
+      const item = await api(`/api/cases/${id}/checklist`, {
+        method: "PATCH",
+        body: JSON.stringify({ index, checked })
+      });
+      state.cases = state.cases.map(entry => entry.id === id ? item : entry);
+      openCase(id);
+      renderApp();
+    }
+
+    async function updateStatus(id, status) {
+      const item = await api(`/api/cases/${id}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status })
+      });
+      state.cases = state.cases.map(entry => entry.id === id ? item : entry);
+      renderApp();
+    }
+
+    async function deleteCase(id) {
+      await api(`/api/cases/${id}`, { method: "DELETE" });
+      state.cases = state.cases.filter(item => item.id !== id);
+      closeModal();
+      renderApp();
+    }
+
+    document.addEventListener("click", event => {
+      const roleBtn = event.target.closest("[data-role]");
+      if (roleBtn) setRole(roleBtn.dataset.role);
+
+      const pageBtn = event.target.closest("[data-page]");
+      if (pageBtn) {
+        state.page = pageBtn.dataset.page;
+        renderApp();
+      }
+
+      const filterBtn = event.target.closest("[data-filter]");
+      if (filterBtn) {
+        state.filter = filterBtn.dataset.filter;
+        renderCases();
+      }
+
+      const caseBtn = event.target.closest("[data-case]");
+      if (caseBtn) openCase(caseBtn.dataset.case);
+
+      const closeBtn = event.target.closest("[data-close-modal]");
+      if (closeBtn) closeModal();
+
+      const deleteBtn = event.target.closest("[data-delete]");
+      if (deleteBtn && confirm("這會從 Zeabur 資料庫刪除此案件，確定刪除？")) {
+        deleteCase(deleteBtn.dataset.delete).catch(error => alert(error.message));
+      }
+    });
+
+    document.addEventListener("change", event => {
+      if (event.target.matches("[data-check]")) {
+        updateChecklist(event.target.dataset.check, Number(event.target.dataset.index), event.target.checked).catch(error => alert(error.message));
+      }
+      if (event.target.matches("[data-status-for]")) {
+        updateStatus(event.target.dataset.statusFor, event.target.value).catch(error => alert(error.message));
+      }
+    });
+
+    els.roleGrid.addEventListener("click", event => event.preventDefault());
+    els.loginForm.addEventListener("submit", login);
+    els.logoutBtn.addEventListener("click", logout);
+    els.closeModal.addEventListener("click", closeModal);
+    els.caseModal.addEventListener("click", event => {
+      if (event.target === els.caseModal) closeModal();
+    });
+    document.addEventListener("submit", event => {
+      if (event.target.id === "caseForm") createCase(event).catch(error => alert(error.message));
+    });
+
+    renderRoles();
+  </script>
+</body>
+</html>
