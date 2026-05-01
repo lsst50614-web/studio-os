@@ -24,6 +24,7 @@ const caseTypes = {
 
 const statuses = new Set(["新接案", "製作中", "待驗收", "需修改", "已完成", "暫緩"]);
 const recordKinds = new Set(["公司狀態", "零用金"]);
+const paymentStatuses = new Set(["未支出", "已支出"]);
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(__dirname, {
@@ -71,10 +72,16 @@ async function initDb() {
       kind TEXT NOT NULL,
       title TEXT NOT NULL,
       amount INTEGER NOT NULL DEFAULT 0,
+      payment_status TEXT NOT NULL DEFAULT '已支出',
       occurred_on DATE NOT NULL DEFAULT CURRENT_DATE,
       notes TEXT NOT NULL DEFAULT '',
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+  `);
+
+  await pool.query(`
+    ALTER TABLE studio_company_records
+      ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT '已支出';
   `);
 }
 
@@ -122,6 +129,7 @@ function toCompanyRecord(row) {
     kind: row.kind,
     title: row.title,
     amount: Number(row.amount || 0),
+    paymentStatus: row.kind === "零用金" ? (row.payment_status || "已支出") : "不適用",
     date: row.occurred_on instanceof Date ? row.occurred_on.toISOString().slice(0, 10) : row.occurred_on,
     notes: row.notes || "",
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at
@@ -181,11 +189,12 @@ app.post("/api/company-records", async (req, res, next) => {
     }
 
     const amount = body.kind === "零用金" ? Math.max(0, Number(body.amount || 0)) : 0;
+    const paymentStatus = body.kind === "零用金" && paymentStatuses.has(body.paymentStatus) ? body.paymentStatus : "不適用";
     const { rows } = await pool.query(
-      `INSERT INTO studio_company_records (kind, title, amount, occurred_on, notes)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO studio_company_records (kind, title, amount, payment_status, occurred_on, notes)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [body.kind, cleanText(body.title), amount, body.date, cleanText(body.notes)]
+      [body.kind, cleanText(body.title), amount, paymentStatus, body.date, cleanText(body.notes)]
     );
     res.status(201).json(toCompanyRecord(rows[0]));
   } catch (error) {
