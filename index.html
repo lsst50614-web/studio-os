@@ -173,14 +173,6 @@
       box-shadow: 0 0 0 3px rgba(85, 200, 232, .14);
     }
 
-    .role-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 8px;
-      margin: 2px 0 14px;
-    }
-
-    .role-btn,
     .chip,
     .icon-btn,
     .primary,
@@ -197,12 +189,6 @@
       font-weight: 800;
     }
 
-    .role-btn {
-      padding: 10px;
-      text-align: center;
-    }
-
-    .role-btn.active,
     .chip.active {
       border-color: rgba(85, 200, 232, .8);
       background: rgba(85, 200, 232, .14);
@@ -637,13 +623,13 @@
 
       <form id="loginForm" class="panel">
         <div class="field">
-          <label>登入角色</label>
-          <div id="roleGrid" class="role-grid"></div>
+          <label for="username">帳號</label>
+          <input id="username" type="text" autocomplete="username" placeholder="輸入帳號" required>
         </div>
         <div class="field">
           <label for="password">密碼</label>
-          <input id="password" type="password" autocomplete="current-password" placeholder="輸入 demo 密碼">
-          <p class="small">Demo 密碼：老闆 boss123；其他角色 staff123；行政 admin123</p>
+          <input id="password" type="password" autocomplete="current-password" placeholder="輸入密碼">
+          <p class="small">Demo 帳號：boss / recorder / arranger / mixer / admin</p>
         </div>
         <p id="loginError" class="error"></p>
         <button class="primary" type="submit">登入</button>
@@ -681,8 +667,8 @@
   </div>
 
   <script>
-    const roles = {
-      owner: { label: "老闆", icon: "👑", password: "boss123", isBoss: true },
+    const accounts = {
+      boss: { label: "老闆", icon: "👑", password: "boss123", isBoss: true },
       recorder: { label: "錄音師", icon: "🎤", password: "staff123", employee: "錄音師" },
       arranger: { label: "編曲師", icon: "🎹", password: "staff123", employee: "編曲師" },
       mixer: { label: "混音師", icon: "🎧", password: "staff123", employee: "混音師" },
@@ -705,7 +691,6 @@
     ];
 
     const state = {
-      selectedRole: "owner",
       user: null,
       page: "home",
       filter: "全部",
@@ -717,8 +702,8 @@
     const els = {
       loginScreen: document.querySelector("#loginScreen"),
       appScreen: document.querySelector("#appScreen"),
-      roleGrid: document.querySelector("#roleGrid"),
       loginForm: document.querySelector("#loginForm"),
+      username: document.querySelector("#username"),
       password: document.querySelector("#password"),
       loginError: document.querySelector("#loginError"),
       logoutBtn: document.querySelector("#logoutBtn"),
@@ -824,29 +809,17 @@
       return options;
     }
 
-    function setRole(role) {
-      state.selectedRole = role;
-      renderRoles();
-    }
-
-    function renderRoles() {
-      els.roleGrid.innerHTML = Object.entries(roles).map(([key, role]) => `
-        <button class="role-btn ${state.selectedRole === key ? "active" : ""}" type="button" data-role="${key}">
-          <span>${role.icon}</span><span>${role.label}</span>
-        </button>
-      `).join("");
-    }
-
     async function login(event) {
       event.preventDefault();
-      const role = roles[state.selectedRole];
-      if (els.password.value !== role.password) {
-        els.loginError.textContent = "密碼不正確，請再試一次。";
+      const account = accounts[els.username.value.trim().toLowerCase()];
+      if (!account || els.password.value !== account.password) {
+        els.loginError.textContent = "帳號或密碼不正確，請再試一次。";
         return;
       }
-      state.user = role;
+      state.user = account;
       state.page = "home";
       els.loginError.textContent = "";
+      els.username.value = "";
       els.password.value = "";
       els.loginScreen.classList.add("hidden");
       els.appScreen.classList.remove("hidden");
@@ -1248,9 +1221,6 @@
     }
 
     document.addEventListener("click", event => {
-      const roleBtn = event.target.closest("[data-role]");
-      if (roleBtn) setRole(roleBtn.dataset.role);
-
       const pageBtn = event.target.closest("[data-page]");
       if (pageBtn) {
         state.page = pageBtn.dataset.page;
@@ -1284,7 +1254,6 @@
       }
     });
 
-    els.roleGrid.addEventListener("click", event => event.preventDefault());
     els.loginForm.addEventListener("submit", login);
     els.logoutBtn.addEventListener("click", logout);
     els.closeModal.addEventListener("click", closeModal);
@@ -1297,7 +1266,6 @@
       if (event.target.id === "deliveryForm") updateDelivery(event).catch(error => alert(error.message));
     });
 
-    renderRoles();
   </script>
 </body>
 </html>
