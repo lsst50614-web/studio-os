@@ -53,6 +53,15 @@ async function initDb() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
+
+  await pool.query(`
+    ALTER TABLE studio_cases
+      ADD COLUMN IF NOT EXISTS drive_folder_url TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS source_material_url TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS delivery_url TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS delivery_notes TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ;
+  `);
 }
 
 function toCase(row) {
@@ -68,8 +77,28 @@ function toCase(row) {
     cost: Number(row.cost || 0),
     status: row.status,
     notes: row.notes || "",
-    checklist: Array.isArray(row.checklist) ? row.checklist : []
+    checklist: Array.isArray(row.checklist) ? row.checklist : [],
+    driveFolderUrl: row.drive_folder_url || "",
+    sourceMaterialUrl: row.source_material_url || "",
+    deliveryUrl: row.delivery_url || "",
+    deliveryNotes: row.delivery_notes || "",
+    deliveredAt: row.delivered_at instanceof Date ? row.delivered_at.toISOString() : row.delivered_at
   };
+}
+
+function cleanText(value) {
+  return String(value || "").trim();
+}
+
+function cleanUrl(value) {
+  const text = cleanText(value);
+  if (!text) return "";
+  try {
+    const url = new URL(text);
+    return ["http:", "https:"].includes(url.protocol) ? url.toString() : "";
+  } catch (_error) {
+    return "";
+  }
 }
 
 async function nextCaseId() {
@@ -119,22 +148,24 @@ app.post("/api/cases", async (req, res, next) => {
     const checklist = caseTypes[body.type].map(() => false);
     const { rows } = await pool.query(
       `INSERT INTO studio_cases
-        (id, name, type, client, owner, start_date, due_date, quote, cost, status, notes, checklist)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
+        (id, name, type, client, owner, start_date, due_date, quote, cost, status, notes, checklist, drive_folder_url, source_material_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14)
        RETURNING *`,
       [
         id,
-        String(body.name).trim(),
+        cleanText(body.name),
         body.type,
-        String(body.client).trim(),
+        cleanText(body.client),
         body.owner,
         body.start,
         body.due,
         Number(body.quote || 0),
         Number(body.cost || 0),
         body.status || "新接案",
-        String(body.notes || "").trim(),
-        JSON.stringify(checklist)
+        cleanText(body.notes),
+        JSON.stringify(checklist),
+        cleanUrl(body.driveFolderUrl),
+        cleanUrl(body.sourceMaterialUrl)
       ]
     );
     res.status(201).json(toCase(rows[0]));
@@ -183,6 +214,41 @@ app.patch("/api/cases/:id/checklist", async (req, res, next) => {
     const { rows } = await pool.query(
       "UPDATE studio_cases SET checklist = $1::jsonb, status = $2, updated_at = now() WHERE id = $3 RETURNING *",
       [JSON.stringify(item.checklist), status, req.params.id]
+    );
+    res.json(toCase(rows[0]));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/cases/:id/delivery", async (req, res, next) => {
+  try {
+    const found = await pool.query("SELECT * FROM studio_cases WHERE id = $1", [req.params.id]);
+    if (!found.rows[0]) {
+      res.status(404).json({ error: "找不到案件" });
+      return;
+    }
+
+    const current = toCase(found.rows[0]);
+    const driveFolderUrl = cleanUrl(req.body?.driveFolderUrl);
+    const sourceMaterialUrl = cleanUrl(req.body?.sourceMaterialUrl);
+    const deliveryUrl = cleanUrl(req.body?.deliveryUrl);
+    const deliveryNotes = cleanText(req.body?.deliveryNotes);
+    const deliveredAt = deliveryUrl ? (current.deliveredAt || new Date().toISOString()) : null;
+    const status = deliveryUrl && !["已完成", "暫緩"].includes(current.status) ? "待驗收" : current.status;
+
+    const { rows } = await pool.query(
+      `UPDATE studio_cases
+       SET drive_folder_url = $1,
+           source_material_url = $2,
+           delivery_url = $3,
+           delivery_notes = $4,
+           delivered_at = $5,
+           status = $6,
+           updated_at = now()
+       WHERE id = $7
+       RETURNING *`,
+      [driveFolderUrl, sourceMaterialUrl, deliveryUrl, deliveryNotes, deliveredAt, status, req.params.id]
     );
     res.json(toCase(rows[0]));
   } catch (error) {
