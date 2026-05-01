@@ -23,6 +23,7 @@ const caseTypes = {
 };
 
 const statuses = new Set(["新接案", "製作中", "待驗收", "需修改", "已完成", "暫緩"]);
+const recordKinds = new Set(["公司狀態", "零用金"]);
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(__dirname, {
@@ -62,6 +63,18 @@ async function initDb() {
       ADD COLUMN IF NOT EXISTS delivery_notes TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS review_notes TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ;
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS studio_company_records (
+      id SERIAL PRIMARY KEY,
+      kind TEXT NOT NULL,
+      title TEXT NOT NULL,
+      amount INTEGER NOT NULL DEFAULT 0,
+      occurred_on DATE NOT NULL DEFAULT CURRENT_DATE,
+      notes TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
   `);
 }
 
@@ -103,6 +116,18 @@ function cleanUrl(value) {
   }
 }
 
+function toCompanyRecord(row) {
+  return {
+    id: row.id,
+    kind: row.kind,
+    title: row.title,
+    amount: Number(row.amount || 0),
+    date: row.occurred_on instanceof Date ? row.occurred_on.toISOString().slice(0, 10) : row.occurred_on,
+    notes: row.notes || "",
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at
+  };
+}
+
 async function nextCaseId() {
   const now = new Date();
   const yy = String(now.getFullYear()).slice(2);
@@ -125,6 +150,57 @@ app.get("/api/cases", async (_req, res, next) => {
   try {
     const { rows } = await pool.query("SELECT * FROM studio_cases ORDER BY created_at DESC");
     res.json(rows.map(toCase));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/company-records", async (_req, res, next) => {
+  try {
+    const { rows } = await pool.query("SELECT * FROM studio_company_records ORDER BY occurred_on DESC, created_at DESC");
+    res.json(rows.map(toCompanyRecord));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/company-records", async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    if (body.role !== "owner") {
+      res.status(403).json({ error: "只有老闆可以新增行政紀錄" });
+      return;
+    }
+    if (!recordKinds.has(body.kind)) {
+      res.status(400).json({ error: "紀錄類型不正確" });
+      return;
+    }
+    if (!cleanText(body.title) || !body.date) {
+      res.status(400).json({ error: "缺少必要欄位" });
+      return;
+    }
+
+    const amount = body.kind === "零用金" ? Math.max(0, Number(body.amount || 0)) : 0;
+    const { rows } = await pool.query(
+      `INSERT INTO studio_company_records (kind, title, amount, occurred_on, notes)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [body.kind, cleanText(body.title), amount, body.date, cleanText(body.notes)]
+    );
+    res.status(201).json(toCompanyRecord(rows[0]));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/company-records/:id", async (req, res, next) => {
+  try {
+    if (req.body?.role !== "owner") {
+      res.status(403).json({ error: "只有老闆可以刪除行政紀錄" });
+      return;
+    }
+    await pool.query("DELETE FROM studio_company_records WHERE id = $1", [req.params.id]);
+    res.status(204).end();
   } catch (error) {
     next(error);
   }
