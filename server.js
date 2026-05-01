@@ -22,7 +22,7 @@ const caseTypes = {
   "電影配樂": ["劇本分析", "音樂風格會議", "主題曲創作", "配樂錄製", "混音", "交件"]
 };
 
-const statuses = new Set(["新接案", "製作中", "待驗收", "已完成", "暫緩"]);
+const statuses = new Set(["新接案", "製作中", "待驗收", "需修改", "已完成", "暫緩"]);
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(__dirname, {
@@ -60,6 +60,7 @@ async function initDb() {
       ADD COLUMN IF NOT EXISTS source_material_url TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS delivery_url TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS delivery_notes TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS review_notes TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ;
   `);
 }
@@ -82,6 +83,7 @@ function toCase(row) {
     sourceMaterialUrl: row.source_material_url || "",
     deliveryUrl: row.delivery_url || "",
     deliveryNotes: row.delivery_notes || "",
+    reviewNotes: row.review_notes || "",
     deliveredAt: row.delivered_at instanceof Date ? row.delivered_at.toISOString() : row.delivered_at
   };
 }
@@ -180,9 +182,40 @@ app.patch("/api/cases/:id/status", async (req, res, next) => {
       res.status(400).json({ error: "案件狀態不正確" });
       return;
     }
+    if (req.body.status === "需修改" && req.body.role !== "owner") {
+      res.status(403).json({ error: "只有老闆可以標記需修改" });
+      return;
+    }
     const { rows } = await pool.query(
       "UPDATE studio_cases SET status = $1, updated_at = now() WHERE id = $2 RETURNING *",
       [req.body.status, req.params.id]
+    );
+    if (!rows[0]) {
+      res.status(404).json({ error: "找不到案件" });
+      return;
+    }
+    res.json(toCase(rows[0]));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/cases/:id/review", async (req, res, next) => {
+  try {
+    if (req.body?.role !== "owner") {
+      res.status(403).json({ error: "只有老闆可以更新驗收建議" });
+      return;
+    }
+
+    const reviewNotes = cleanText(req.body?.reviewNotes);
+    const { rows } = await pool.query(
+      `UPDATE studio_cases
+       SET status = '需修改',
+           review_notes = $1,
+           updated_at = now()
+       WHERE id = $2
+       RETURNING *`,
+      [reviewNotes, req.params.id]
     );
     if (!rows[0]) {
       res.status(404).json({ error: "找不到案件" });
