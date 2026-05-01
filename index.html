@@ -517,6 +517,49 @@
       gap: 8px;
     }
 
+    .delivery-band {
+      border: 1px solid rgba(85, 200, 232, .28);
+      background: rgba(85, 200, 232, .08);
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 12px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .link-grid {
+      display: grid;
+      gap: 8px;
+    }
+
+    .link-button {
+      min-height: 40px;
+      padding: 9px 10px;
+      border-radius: 8px;
+      color: var(--text);
+      background: rgba(16, 20, 26, .88);
+      border: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      text-decoration: none;
+      font-weight: 800;
+      overflow-wrap: anywhere;
+    }
+
+    .link-button.empty {
+      color: var(--muted);
+      font-weight: 700;
+      pointer-events: none;
+    }
+
+    .delivery-form {
+      display: grid;
+      gap: 10px;
+      margin-top: 4px;
+    }
+
     .form-actions {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -687,6 +730,33 @@
       });
     }
 
+    function esc(value) {
+      return String(value ?? "").replace(/[&<>"']/g, char => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#039;"
+      }[char]));
+    }
+
+    function safeUrl(value) {
+      const text = String(value || "").trim();
+      if (!text) return "";
+      try {
+        const url = new URL(text);
+        return ["http:", "https:"].includes(url.protocol) ? url.toString() : "";
+      } catch (_error) {
+        return "";
+      }
+    }
+
+    function linkButton(label, url) {
+      const safe = safeUrl(url);
+      if (!safe) return `<div class="link-button empty"><span>${esc(label)}</span><span>未設定</span></div>`;
+      return `<a class="link-button" href="${esc(safe)}" target="_blank" rel="noopener noreferrer"><span>${esc(label)}</span><span>開啟</span></a>`;
+    }
+
     async function api(path, options = {}) {
       const response = await fetch(path, {
         headers: { "Content-Type": "application/json", ...(options.headers || {}) },
@@ -727,6 +797,12 @@
     function progressOf(item) {
       if (!item.checklist.length) return 0;
       return Math.round(item.checklist.filter(Boolean).length / item.checklist.length * 100);
+    }
+
+    function deliveryText(item) {
+      if (item.deliveryUrl) return "已提供交付連結";
+      if (item.driveFolderUrl || item.sourceMaterialUrl) return "已有雲端資料夾";
+      return "未設定交付位置";
     }
 
     function setRole(role) {
@@ -911,11 +987,12 @@
         <button class="case-card" type="button" data-case="${item.id}">
           <div class="case-head">
             <div class="case-title">
-              <p class="small">${item.id} · ${item.type}</p>
-              <h3>${item.name}</h3>
-              <p class="case-meta">${item.client} · ${item.owner} · ${item.due}</p>
+              <p class="small">${esc(item.id)} · ${esc(item.type)}</p>
+              <h3>${esc(item.name)}</h3>
+              <p class="case-meta">${esc(item.client)} · ${esc(item.owner)} · ${esc(item.due)}</p>
+              <p class="case-meta">${esc(deliveryText(item))}</p>
             </div>
-            <span class="badge status-${item.status}">${item.status}</span>
+            <span class="badge status-${esc(item.status)}">${esc(item.status)}</span>
           </div>
           <div>
             <div class="split"><span class="small">製作進度</span><strong>${progressOf(item)}%</strong></div>
@@ -940,6 +1017,8 @@
           <div class="field"><label for="status">案件狀態</label><select id="status">${["新接案", "製作中", "待驗收", "已完成", "暫緩"].map(status => `<option>${status}</option>`).join("")}</select></div>
           <div class="field ${canSeeMoney ? "" : "hidden"}"><label for="quote">報價金額</label><input id="quote" type="number" min="0" inputmode="numeric" value="0"></div>
           <div class="field ${canSeeMoney ? "" : "hidden"}"><label for="cost">預估成本</label><input id="cost" type="number" min="0" inputmode="numeric" value="0"></div>
+          <div class="field"><label for="driveFolderUrl">Google Drive 工作資料夾</label><input id="driveFolderUrl" type="url" inputmode="url" placeholder="貼上內部工作資料夾連結"></div>
+          <div class="field"><label for="sourceMaterialUrl">客戶素材連結</label><input id="sourceMaterialUrl" type="url" inputmode="url" placeholder="貼上客戶上傳素材連結"></div>
           <div class="field"><label for="notes">備註 / 需求說明</label><textarea id="notes" placeholder="客戶需求、參考資料、交付格式"></textarea></div>
           <button class="primary" type="submit">建立案件</button>
         </form>
@@ -960,7 +1039,9 @@
         quote: state.user.isBoss ? Number(document.querySelector("#quote").value || 0) : 0,
         cost: state.user.isBoss ? Number(document.querySelector("#cost").value || 0) : 0,
         status: document.querySelector("#status").value,
-        notes: document.querySelector("#notes").value.trim()
+        notes: document.querySelector("#notes").value.trim(),
+        driveFolderUrl: document.querySelector("#driveFolderUrl").value.trim(),
+        sourceMaterialUrl: document.querySelector("#sourceMaterialUrl").value.trim()
       };
       const item = await api("/api/cases", { method: "POST", body: JSON.stringify(payload) });
       state.cases.unshift(item);
@@ -996,8 +1077,9 @@
         <div class="section-title"><h3>案件金額一覽</h3></div>
         <div class="grid">
           ${state.cases.length ? state.cases.map(item => `<div class="finance-row">
-            <div class="split"><h3>${item.name}</h3><span class="badge status-${item.status}">${item.status}</span></div>
-            <p class="small">${item.id} · ${item.client} · ${item.owner}</p>
+            <div class="split"><h3>${esc(item.name)}</h3><span class="badge status-${esc(item.status)}">${esc(item.status)}</span></div>
+            <p class="small">${esc(item.id)} · ${esc(item.client)} · ${esc(item.owner)}</p>
+            <p class="small">${esc(deliveryText(item))}</p>
             <div class="split"><span>報價</span><strong>${money(item.quote)}</strong></div>
             <div class="split"><span>預估成本</span><strong>${money(item.cost)}</strong></div>
             <div class="split"><span>預估利潤</span><strong>${money(item.quote - item.cost)}</strong></div>
@@ -1010,14 +1092,17 @@
       const item = state.cases.find(entry => entry.id === id);
       if (!item) return;
       const canSeeMoney = state.user.isBoss;
+      const driveFolderUrl = safeUrl(item.driveFolderUrl);
+      const sourceMaterialUrl = safeUrl(item.sourceMaterialUrl);
+      const deliveryUrl = safeUrl(item.deliveryUrl);
       els.modalCode.textContent = `${item.id} · ${item.type}`;
       els.modalTitle.textContent = item.name;
       els.modalBody.innerHTML = `
         <div class="detail-grid">
-          <div class="detail-item"><span class="small">客戶</span><strong>${item.client}</strong></div>
-          <div class="detail-item"><span class="small">負責人</span><strong>${item.owner}</strong></div>
-          <div class="detail-item"><span class="small">開始日期</span><strong>${item.start}</strong></div>
-          <div class="detail-item"><span class="small">截止日期</span><strong>${item.due}</strong></div>
+          <div class="detail-item"><span class="small">客戶</span><strong>${esc(item.client)}</strong></div>
+          <div class="detail-item"><span class="small">負責人</span><strong>${esc(item.owner)}</strong></div>
+          <div class="detail-item"><span class="small">開始日期</span><strong>${esc(item.start)}</strong></div>
+          <div class="detail-item"><span class="small">截止日期</span><strong>${esc(item.due)}</strong></div>
         </div>
         <div class="field">
           <label for="modalStatus">案件狀態</label>
@@ -1032,10 +1117,28 @@
             ${caseTypes[item.type].map((label, index) => `
               <label class="check-item">
                 <input type="checkbox" ${item.checklist[index] ? "checked" : ""} data-check="${item.id}" data-index="${index}">
-                <span>${label}</span>
+                <span>${esc(label)}</span>
               </label>
             `).join("")}
           </div>
+        </div>
+        <div class="delivery-band">
+          <div class="split">
+            <h3>Google Drive 交付區</h3>
+            <span class="small">${esc(deliveryText(item))}</span>
+          </div>
+          <div class="link-grid">
+            ${linkButton("工作資料夾", driveFolderUrl)}
+            ${linkButton("客戶素材", sourceMaterialUrl)}
+            ${linkButton("最終交付", deliveryUrl)}
+          </div>
+          <form id="deliveryForm" class="delivery-form" data-delivery-for="${esc(item.id)}">
+            <div class="field"><label for="modalDriveFolderUrl">工作資料夾</label><input id="modalDriveFolderUrl" type="url" inputmode="url" value="${esc(driveFolderUrl)}" placeholder="Google Drive 內部工作資料夾"></div>
+            <div class="field"><label for="modalSourceMaterialUrl">客戶素材</label><input id="modalSourceMaterialUrl" type="url" inputmode="url" value="${esc(sourceMaterialUrl)}" placeholder="客戶素材或上傳資料夾"></div>
+            <div class="field"><label for="modalDeliveryUrl">最終交付</label><input id="modalDeliveryUrl" type="url" inputmode="url" value="${esc(deliveryUrl)}" placeholder="最後交給客戶的 Google Drive 連結"></div>
+            <div class="field"><label for="modalDeliveryNotes">交付備註</label><textarea id="modalDeliveryNotes" placeholder="版本、檔案格式、交付注意事項">${esc(item.deliveryNotes || "")}</textarea></div>
+            <button class="primary" type="submit">儲存交付資訊</button>
+          </form>
         </div>
         <div class="${canSeeMoney ? "money-band" : "hidden"}">
           <div class="split"><span>報價金額</span><strong>${money(item.quote)}</strong></div>
@@ -1043,7 +1146,7 @@
           <div class="split"><span>預估利潤</span><strong>${money(item.quote - item.cost)}</strong></div>
         </div>
         <div class="section-title"><h3>備註 / 需求</h3></div>
-        <p class="muted">${item.notes || "無備註"}</p>
+        <p class="muted">${esc(item.notes || "無備註")}</p>
         <div class="form-actions">
           <button class="ghost" type="button" data-delete="${item.id}">刪除</button>
           <button class="primary" type="button" data-close-modal>完成</button>
@@ -1073,6 +1176,23 @@
       });
       state.cases = state.cases.map(entry => entry.id === id ? item : entry);
       renderApp();
+    }
+
+    async function updateDelivery(event) {
+      event.preventDefault();
+      const id = event.target.dataset.deliveryFor;
+      const item = await api(`/api/cases/${id}/delivery`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          driveFolderUrl: document.querySelector("#modalDriveFolderUrl").value.trim(),
+          sourceMaterialUrl: document.querySelector("#modalSourceMaterialUrl").value.trim(),
+          deliveryUrl: document.querySelector("#modalDeliveryUrl").value.trim(),
+          deliveryNotes: document.querySelector("#modalDeliveryNotes").value.trim()
+        })
+      });
+      state.cases = state.cases.map(entry => entry.id === id ? item : entry);
+      renderApp();
+      openCase(id);
     }
 
     async function deleteCase(id) {
@@ -1128,6 +1248,7 @@
     });
     document.addEventListener("submit", event => {
       if (event.target.id === "caseForm") createCase(event).catch(error => alert(error.message));
+      if (event.target.id === "deliveryForm") updateDelivery(event).catch(error => alert(error.message));
     });
 
     renderRoles();
