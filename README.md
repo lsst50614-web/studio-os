@@ -8,6 +8,7 @@
 - Case management with status filters and checklist progress
 - Owner-only finance view
 - Owner-only admin records for company status and petty cash
+- Petty cash payment status tracking for paid and pending expenses
 - PostgreSQL-backed API for persistent project data
 - Mobile-first dark UI
 
