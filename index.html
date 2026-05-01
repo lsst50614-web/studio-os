@@ -346,6 +346,7 @@
     .status-新接案 { background: var(--blue); }
     .status-製作中 { background: var(--yellow); }
     .status-待驗收 { background: var(--magenta); }
+    .status-需修改 { background: var(--red); }
     .status-已完成 { background: var(--green); }
     .status-暫緩 { background: var(--red); }
 
@@ -558,6 +559,16 @@
       display: grid;
       gap: 10px;
       margin-top: 4px;
+    }
+
+    .review-band {
+      border: 1px solid rgba(255, 111, 125, .34);
+      background: rgba(255, 111, 125, .08);
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 12px;
+      display: grid;
+      gap: 10px;
     }
 
     .form-actions {
@@ -800,9 +811,17 @@
     }
 
     function deliveryText(item) {
+      if (item.status === "需修改") return "老闆要求修改";
       if (item.deliveryUrl) return "已提供交付連結";
       if (item.driveFolderUrl || item.sourceMaterialUrl) return "已有雲端資料夾";
       return "未設定交付位置";
+    }
+
+    function statusOptions(currentStatus) {
+      const normal = ["新接案", "製作中", "待驗收", "已完成", "暫緩"];
+      const options = state.user.isBoss ? ["新接案", "製作中", "待驗收", "需修改", "已完成", "暫緩"] : normal;
+      if (!options.includes(currentStatus)) options.splice(3, 0, currentStatus);
+      return options;
     }
 
     function setRole(role) {
@@ -970,7 +989,7 @@
     }
 
     function renderCases() {
-      const statuses = ["全部", "新接案", "製作中", "待驗收", "已完成", "暫緩"];
+      const statuses = ["全部", "新接案", "製作中", "待驗收", "需修改", "已完成", "暫緩"];
       const items = visibleCases().filter(item => state.filter === "全部" || item.status === state.filter);
       els.viewRoot.innerHTML = `
         <div class="filter-row">
@@ -1014,7 +1033,7 @@
             <div class="field"><label for="start">開始日期</label><input id="start" type="date" required></div>
             <div class="field"><label for="due">截止日期</label><input id="due" type="date" required></div>
           </div>
-          <div class="field"><label for="status">案件狀態</label><select id="status">${["新接案", "製作中", "待驗收", "已完成", "暫緩"].map(status => `<option>${status}</option>`).join("")}</select></div>
+          <div class="field"><label for="status">案件狀態</label><select id="status">${statusOptions("新接案").map(status => `<option>${status}</option>`).join("")}</select></div>
           <div class="field ${canSeeMoney ? "" : "hidden"}"><label for="quote">報價金額</label><input id="quote" type="number" min="0" inputmode="numeric" value="0"></div>
           <div class="field ${canSeeMoney ? "" : "hidden"}"><label for="cost">預估成本</label><input id="cost" type="number" min="0" inputmode="numeric" value="0"></div>
           <div class="field"><label for="driveFolderUrl">Google Drive 工作資料夾</label><input id="driveFolderUrl" type="url" inputmode="url" placeholder="貼上內部工作資料夾連結"></div>
@@ -1107,7 +1126,7 @@
         <div class="field">
           <label for="modalStatus">案件狀態</label>
           <select id="modalStatus" data-status-for="${item.id}">
-            ${["新接案", "製作中", "待驗收", "已完成", "暫緩"].map(status => `<option ${status === item.status ? "selected" : ""}>${status}</option>`).join("")}
+            ${statusOptions(item.status).map(status => `<option ${status === item.status ? "selected" : ""}>${status}</option>`).join("")}
           </select>
         </div>
         <div>
@@ -1138,6 +1157,17 @@
             <div class="field"><label for="modalDeliveryUrl">最終交付</label><input id="modalDeliveryUrl" type="url" inputmode="url" value="${esc(deliveryUrl)}" placeholder="最後交給客戶的 Google Drive 連結"></div>
             <div class="field"><label for="modalDeliveryNotes">交付備註</label><textarea id="modalDeliveryNotes" placeholder="版本、檔案格式、交付注意事項">${esc(item.deliveryNotes || "")}</textarea></div>
             <button class="primary" type="submit">儲存交付資訊</button>
+          </form>
+        </div>
+        <div class="review-band">
+          <div class="split">
+            <h3>驗收建議</h3>
+            <span class="small">${item.status === "需修改" ? "需修改" : "尚未打回"}</span>
+          </div>
+          <p class="muted">${esc(item.reviewNotes || "目前沒有驗收建議。")}</p>
+          <form id="reviewForm" class="${state.user.isBoss ? "delivery-form" : "hidden"}" data-review-for="${esc(item.id)}">
+            <div class="field"><label for="modalReviewNotes">老闆建議</label><textarea id="modalReviewNotes" placeholder="寫下哪裡不 OK、要怎麼修、交回版本規格">${esc(item.reviewNotes || "")}</textarea></div>
+            <button class="primary" type="submit">標記需修改</button>
           </form>
         </div>
         <div class="${canSeeMoney ? "money-band" : "hidden"}">
@@ -1172,10 +1202,25 @@
     async function updateStatus(id, status) {
       const item = await api(`/api/cases/${id}/status`, {
         method: "PATCH",
-        body: JSON.stringify({ status })
+        body: JSON.stringify({ status, role: state.user.isBoss ? "owner" : "staff" })
       });
       state.cases = state.cases.map(entry => entry.id === id ? item : entry);
       renderApp();
+    }
+
+    async function updateReview(event) {
+      event.preventDefault();
+      const id = event.target.dataset.reviewFor;
+      const item = await api(`/api/cases/${id}/review`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          role: state.user.isBoss ? "owner" : "staff",
+          reviewNotes: document.querySelector("#modalReviewNotes").value.trim()
+        })
+      });
+      state.cases = state.cases.map(entry => entry.id === id ? item : entry);
+      renderApp();
+      openCase(id);
     }
 
     async function updateDelivery(event) {
@@ -1248,6 +1293,7 @@
     });
     document.addEventListener("submit", event => {
       if (event.target.id === "caseForm") createCase(event).catch(error => alert(error.message));
+      if (event.target.id === "reviewForm") updateReview(event).catch(error => alert(error.message));
       if (event.target.id === "deliveryForm") updateDelivery(event).catch(error => alert(error.message));
     });
 
