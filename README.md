@@ -4,9 +4,10 @@
 
 ## Features
 
-- Role-based login for owner, staff, and admin views
+- Account-based login for owner and staff views
 - Case management with status filters and checklist progress
 - Owner-only finance view
+- Owner-only admin records for company status and petty cash
 - PostgreSQL-backed API for persistent project data
 - Mobile-first dark UI
 
