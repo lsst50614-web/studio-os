@@ -125,6 +125,7 @@
     .case-card,
     .metric,
     .finance-row,
+    .record-row,
     .pay-row {
       background: linear-gradient(180deg, rgba(21, 27, 35, .96), rgba(16, 20, 26, .96));
       border: 1px solid rgba(255, 255, 255, .07);
@@ -565,6 +566,7 @@
     }
 
     .finance-row,
+    .record-row,
     .pay-row {
       padding: 13px;
       display: grid;
@@ -629,7 +631,7 @@
         <div class="field">
           <label for="password">密碼</label>
           <input id="password" type="password" autocomplete="current-password" placeholder="輸入密碼">
-          <p class="small">Demo 帳號：boss / recorder / arranger / mixer / admin</p>
+          <p class="small">Demo 帳號：boss / recorder / arranger / mixer</p>
         </div>
         <p id="loginError" class="error"></p>
         <button class="primary" type="submit">登入</button>
@@ -671,8 +673,7 @@
       boss: { label: "老闆", icon: "👑", password: "boss123", isBoss: true },
       recorder: { label: "錄音師", icon: "🎤", password: "staff123", employee: "錄音師" },
       arranger: { label: "編曲師", icon: "🎹", password: "staff123", employee: "編曲師" },
-      mixer: { label: "混音師", icon: "🎧", password: "staff123", employee: "混音師" },
-      admin: { label: "行政", icon: "📋", password: "admin123", admin: true }
+      mixer: { label: "混音師", icon: "🎧", password: "staff123", employee: "混音師" }
     };
 
     const caseTypes = {
@@ -695,6 +696,7 @@
       page: "home",
       filter: "全部",
       cases: [],
+      records: [],
       loading: false,
       apiError: ""
     };
@@ -774,10 +776,16 @@
       state.apiError = "";
       renderApp();
       try {
-        state.cases = await api("/api/cases");
+        const [cases, records] = await Promise.all([
+          api("/api/cases"),
+          state.user.isBoss ? api("/api/company-records") : Promise.resolve([])
+        ]);
+        state.cases = cases;
+        state.records = records;
       } catch (error) {
         state.apiError = error.message;
         state.cases = [];
+        state.records = [];
       } finally {
         state.loading = false;
         renderApp();
@@ -786,7 +794,7 @@
 
     function visibleCases() {
       if (!state.user) return [];
-      if (state.user.isBoss || state.user.admin) return state.cases;
+      if (state.user.isBoss) return state.cases;
       return state.cases.filter(item => item.owner === state.user.employee);
     }
 
@@ -841,7 +849,10 @@
         { key: "cases", label: "案件", icon: "briefcase" },
         { key: "new", label: "新增", icon: "plus" }
       ];
-      if (state.user.isBoss) items.push({ key: "finance", label: "財務", icon: "chart" });
+      if (state.user.isBoss) {
+        items.push({ key: "company", label: "行政", icon: "clipboard" });
+        items.push({ key: "finance", label: "財務", icon: "chart" });
+      }
       return items;
     }
 
@@ -850,6 +861,7 @@
         home: '<path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/>',
         briefcase: '<path d="M10 6V5a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2v1"/><path d="M4 7h16v12H4z"/><path d="M4 12h16"/>',
         plus: '<path d="M12 5v14M5 12h14"/>',
+        clipboard: '<path d="M9 4h6l1 2h3v15H5V6h3z"/><path d="M9 11h6M9 15h6"/>',
         chart: '<path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-5"/><path d="M12 16V8"/><path d="M16 16v-9"/>'
       };
       return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">${paths[name]}</svg>`;
@@ -867,9 +879,9 @@
     function renderApp() {
       if (!state.user) return;
       renderNav();
-      const titleMap = { home: "首頁", cases: "案件管理", new: "新增案件", finance: "財務" };
+      const titleMap = { home: "首頁", cases: "案件管理", new: "新增案件", company: "行政", finance: "財務" };
       els.pageTitle.textContent = titleMap[state.page];
-      els.eyebrow.textContent = state.user.isBoss ? "老闆視角" : state.user.admin ? "行政視角" : `${state.user.label}視角`;
+      els.eyebrow.textContent = state.user.isBoss ? "老闆視角" : `${state.user.label}視角`;
       els.logoutBtn.innerHTML = `<span>${state.user.icon}</span><span>登出</span>`;
       if (state.loading) {
         els.viewRoot.innerHTML = `<div class="panel"><p class="muted">正在讀取 Zeabur 資料庫...</p></div>`;
@@ -882,6 +894,7 @@
       if (state.page === "home") renderHome();
       if (state.page === "cases") renderCases();
       if (state.page === "new") renderNewCase();
+      if (state.page === "company") renderCompany();
       if (state.page === "finance") renderFinance();
     }
 
@@ -913,6 +926,29 @@
       return `<div class="panel"><p class="muted">${text}</p></div>`;
     }
 
+    function monthlyPettyCash() {
+      const month = new Date().toISOString().slice(0, 7);
+      return state.records
+        .filter(record => record.kind === "零用金" && String(record.date).startsWith(month))
+        .reduce((sum, record) => sum + Number(record.amount || 0), 0);
+    }
+
+    function renderRecordRows(records = state.records) {
+      return records.map(record => `
+        <div class="record-row">
+          <div class="split">
+            <div>
+              <h3>${esc(record.title)}</h3>
+              <p class="small">${esc(record.date)} · ${esc(record.kind)}</p>
+            </div>
+            <strong>${record.kind === "零用金" ? money(record.amount) : "狀態"}</strong>
+          </div>
+          <p class="muted">${esc(record.notes || "沒有補充說明。")}</p>
+          <button class="ghost" type="button" data-delete-record="${record.id}">刪除紀錄</button>
+        </div>
+      `).join("");
+    }
+
     function renderHome() {
       const items = visibleCases();
       const s = stats(items);
@@ -937,24 +973,30 @@
               </div>`;
             }).join("")}
           </div>
+          <div class="section-title"><h3>公司狀態 / 零用金</h3><button class="ghost" type="button" data-page="company">記錄</button></div>
+          <div class="grid metrics">
+            <div class="metric"><span>本月零用金</span><b>${money(monthlyPettyCash())}</b></div>
+            <div class="metric"><span>行政紀錄</span><b>${state.records.length}</b></div>
+          </div>
+          <div class="grid">${state.records.length ? renderRecordRows(state.records.slice(0, 2)) : emptyPanel("目前沒有公司行政紀錄。")}</div>
           <div class="section-title"><h3>近期案件</h3><button class="ghost" type="button" data-page="cases">查看</button></div>
           <div class="grid">${items.length ? renderCaseCards(items.slice(0, 3)) : emptyPanel()}</div>
         `;
         return;
       }
 
-      const pay = state.user.admin ? null : payrollFor(state.user.employee);
+      const pay = payrollFor(state.user.employee);
       els.viewRoot.innerHTML = `
         <div class="panel">
-          <h2>${state.user.icon} ${state.user.admin ? "行政值班台" : `${state.user.employee}，今天辛苦了`}</h2>
-          <p class="muted">${state.user.admin ? "所有案件進度都在這裡，財務資訊已依權限隱藏。" : "這裡只顯示你負責的案件與本月薪資資料。"}</p>
+          <h2>${state.user.icon} ${state.user.employee}，今天辛苦了</h2>
+          <p class="muted">這裡只顯示你負責的案件與本月薪資資料。</p>
         </div>
         <div class="section-title"><h3>我的摘要</h3></div>
         <div class="grid metrics">
           <div class="metric"><span>案件數</span><b>${s.count}</b></div>
           <div class="metric"><span>待驗收</span><b>${s.review}</b></div>
           <div class="metric"><span>進行中</span><b>${s.ongoing}</b></div>
-          <div class="metric"><span>本月薪資</span><b>${state.user.admin ? "隱藏" : money(pay.total)}</b></div>
+          <div class="metric"><span>本月薪資</span><b>${money(pay.total)}</b></div>
         </div>
         <div class="section-title"><h3>案件</h3><button class="ghost" type="button" data-page="cases">查看</button></div>
         <div class="grid">${items.length ? renderCaseCards(items.slice(0, 3)) : emptyPanel("目前沒有指派給你的案件。")}</div>
@@ -1043,18 +1085,79 @@
       openCase(item.id);
     }
 
+    function renderCompany() {
+      const pettyCash = monthlyPettyCash();
+      const statusCount = state.records.filter(record => record.kind === "公司狀態").length;
+      els.viewRoot.innerHTML = `
+        <div class="grid metrics">
+          <div class="metric"><span>本月零用金</span><b>${money(pettyCash)}</b></div>
+          <div class="metric"><span>公司狀態紀錄</span><b>${statusCount}</b></div>
+        </div>
+        <form id="companyRecordForm" class="panel">
+          <div class="field">
+            <label for="recordKind">紀錄類型</label>
+            <select id="recordKind">
+              <option>公司狀態</option>
+              <option>零用金</option>
+            </select>
+          </div>
+          <div class="field"><label for="recordTitle">標題</label><input id="recordTitle" required placeholder="例如：冷氣維修、購買麥克風線、今日客訴狀態"></div>
+          <div class="grid metrics">
+            <div class="field"><label for="recordDate">日期</label><input id="recordDate" type="date" required></div>
+            <div class="field"><label for="recordAmount">金額</label><input id="recordAmount" type="number" min="0" inputmode="numeric" value="0"></div>
+          </div>
+          <div class="field"><label for="recordNotes">內容</label><textarea id="recordNotes" placeholder="公司狀態、處理進度、支出原因、收據位置"></textarea></div>
+          <button class="primary" type="submit">新增行政紀錄</button>
+        </form>
+        <div class="section-title"><h3>行政紀錄</h3></div>
+        <div class="grid">
+          ${state.records.length ? renderRecordRows() : emptyPanel("目前沒有公司行政紀錄。")}
+        </div>
+      `;
+      document.querySelector("#recordDate").value = new Date().toISOString().slice(0, 10);
+    }
+
+    async function createCompanyRecord(event) {
+      event.preventDefault();
+      const payload = {
+        role: state.user.isBoss ? "owner" : "staff",
+        kind: document.querySelector("#recordKind").value,
+        title: document.querySelector("#recordTitle").value.trim(),
+        date: document.querySelector("#recordDate").value,
+        amount: Number(document.querySelector("#recordAmount").value || 0),
+        notes: document.querySelector("#recordNotes").value.trim()
+      };
+      const record = await api("/api/company-records", {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+      state.records.unshift(record);
+      renderApp();
+    }
+
+    async function deleteCompanyRecord(id) {
+      await api(`/api/company-records/${id}`, {
+        method: "DELETE",
+        body: JSON.stringify({ role: state.user.isBoss ? "owner" : "staff" })
+      });
+      state.records = state.records.filter(record => String(record.id) !== String(id));
+      renderApp();
+    }
+
     function renderFinance() {
       const total = state.cases.reduce((sum, item) => sum + item.quote, 0);
       const paid = state.cases.filter(item => item.status === "已完成").reduce((sum, item) => sum + item.quote, 0);
       const receivable = state.cases.filter(item => item.status === "待驗收").reduce((sum, item) => sum + item.quote, 0);
       const active = state.cases.filter(item => item.status === "製作中").reduce((sum, item) => sum + item.quote, 0);
       const salary = employees.reduce((sum, employee) => sum + payrollFor(employee.name).total, 0);
+      const pettyCash = monthlyPettyCash();
       els.viewRoot.innerHTML = `
         <div class="grid metrics">
           <div class="metric"><span>本月總案件金額</span><b>${money(total)}</b></div>
           <div class="metric"><span>已完成收款</span><b>${money(paid)}</b></div>
           <div class="metric"><span>待收款</span><b>${money(receivable)}</b></div>
           <div class="metric"><span>進行中總金額</span><b>${money(active)}</b></div>
+          <div class="metric"><span>零用金支出</span><b>${money(pettyCash)}</b></div>
         </div>
         <div class="section-title"><h3>薪資支出</h3><strong>${money(salary)}</strong></div>
         <div class="grid">
@@ -1243,6 +1346,11 @@
       if (deleteBtn && confirm("這會從 Zeabur 資料庫刪除此案件，確定刪除？")) {
         deleteCase(deleteBtn.dataset.delete).catch(error => alert(error.message));
       }
+
+      const deleteRecordBtn = event.target.closest("[data-delete-record]");
+      if (deleteRecordBtn && confirm("這會從 Zeabur 資料庫刪除此行政紀錄，確定刪除？")) {
+        deleteCompanyRecord(deleteRecordBtn.dataset.deleteRecord).catch(error => alert(error.message));
+      }
     });
 
     document.addEventListener("change", event => {
@@ -1262,6 +1370,7 @@
     });
     document.addEventListener("submit", event => {
       if (event.target.id === "caseForm") createCase(event).catch(error => alert(error.message));
+      if (event.target.id === "companyRecordForm") createCompanyRecord(event).catch(error => alert(error.message));
       if (event.target.id === "reviewForm") updateReview(event).catch(error => alert(error.message));
       if (event.target.id === "deliveryForm") updateDelivery(event).catch(error => alert(error.message));
     });
