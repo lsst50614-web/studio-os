@@ -9,6 +9,7 @@
 - Owner-only finance view
 - Owner-only admin records for company status and petty cash
 - Owner-created employee email accounts with hashed passwords
+- Owner can reset employee temporary passwords
 - Employees choose their monthly work types after logging in
 - Owner-only case creation and assignment
 - Staff expense claims with receipt photo upload
