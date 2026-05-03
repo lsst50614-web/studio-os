@@ -126,6 +126,7 @@
     .metric,
     .finance-row,
     .record-row,
+    .expense-row,
     .pay-row {
       background: linear-gradient(180deg, rgba(21, 27, 35, .96), rgba(16, 20, 26, .96));
       border: 1px solid rgba(255, 255, 255, .07);
@@ -570,10 +571,20 @@
 
     .finance-row,
     .record-row,
+    .expense-row,
     .pay-row {
       padding: 13px;
       display: grid;
       gap: 8px;
+    }
+
+    .receipt-thumb {
+      width: 100%;
+      max-height: 220px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: var(--surface);
     }
 
     .pay-row {
@@ -689,6 +700,7 @@
       filter: "全部",
       cases: [],
       records: [],
+      expenses: [],
       users: [],
       loading: false,
       apiError: ""
@@ -769,17 +781,20 @@
       state.apiError = "";
       renderApp();
       try {
-        const [cases, records] = await Promise.all([
+        const [cases, records, expenses] = await Promise.all([
           api("/api/cases"),
-          state.user.isBoss ? api("/api/company-records") : Promise.resolve([])
+          state.user.isBoss ? api("/api/company-records") : Promise.resolve([]),
+          api(`/api/expense-claims?requesterId=${state.user.id}`)
         ]);
         state.cases = cases;
         state.records = records;
+        state.expenses = expenses;
         if (state.user.isBoss) state.users = await api(`/api/users?requesterId=${state.user.id}`);
       } catch (error) {
         state.apiError = error.message;
         state.cases = [];
         state.records = [];
+        state.expenses = [];
         state.users = [];
       } finally {
         state.loading = false;
@@ -856,6 +871,8 @@
         items.push({ key: "new", label: "新增", icon: "plus" });
         items.push({ key: "company", label: "行政", icon: "clipboard" });
         items.push({ key: "finance", label: "財務", icon: "chart" });
+      } else {
+        items.push({ key: "expense", label: "報帳", icon: "receipt" });
       }
       return items;
     }
@@ -866,6 +883,7 @@
         briefcase: '<path d="M10 6V5a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2v1"/><path d="M4 7h16v12H4z"/><path d="M4 12h16"/>',
         plus: '<path d="M12 5v14M5 12h14"/>',
         clipboard: '<path d="M9 4h6l1 2h3v15H5V6h3z"/><path d="M9 11h6M9 15h6"/>',
+        receipt: '<path d="M6 3h12v18l-2-1-2 1-2-1-2 1-2-1-2 1z"/><path d="M9 8h6M9 12h6M9 16h4"/>',
         chart: '<path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-5"/><path d="M12 16V8"/><path d="M16 16v-9"/>'
       };
       return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">${paths[name]}</svg>`;
@@ -882,9 +900,9 @@
 
     function renderApp() {
       if (!state.user) return;
-      if (!state.user.isBoss && !["home", "cases"].includes(state.page)) state.page = "home";
+      if (!state.user.isBoss && !["home", "cases", "expense"].includes(state.page)) state.page = "home";
       renderNav();
-      const titleMap = { home: "首頁", cases: "案件管理", new: "新增案件", company: "行政", finance: "財務" };
+      const titleMap = { home: "首頁", cases: "案件管理", new: "新增案件", company: "行政", finance: "財務", expense: "報帳" };
       els.pageTitle.textContent = titleMap[state.page];
       els.eyebrow.textContent = state.user.isBoss ? "老闆視角" : `${state.user.label}視角`;
       els.logoutBtn.innerHTML = `<span>${state.user.icon}</span><span>登出</span>`;
@@ -901,6 +919,7 @@
       if (state.page === "new") renderNewCase();
       if (state.page === "company") renderCompany();
       if (state.page === "finance") renderFinance();
+      if (state.page === "expense") renderExpense();
     }
 
     function stats(items = visibleCases()) {
@@ -975,6 +994,21 @@
           </div>
           <p class="muted">${esc(record.notes || "沒有補充說明。")}</p>
           <button class="ghost" type="button" data-delete-record="${record.id}">刪除紀錄</button>
+        </div>
+      `).join("");
+    }
+
+    function renderExpenseRows(expenses = state.expenses) {
+      return expenses.map(expense => `
+        <div class="expense-row">
+          <div class="split">
+            <div>
+              <h3>${esc(expense.itemName)}</h3>
+              <p class="small">${esc(expense.purchaseDate)} · ${esc(expense.employeeName)}</p>
+            </div>
+            <strong>發票</strong>
+          </div>
+          ${expense.receiptImage ? `<img class="receipt-thumb" src="${esc(expense.receiptImage)}" alt="${esc(expense.itemName)} 發票">` : `<p class="muted">沒有發票照片。</p>`}
         </div>
       `).join("");
     }
@@ -1172,8 +1206,28 @@
         <div class="grid">
           ${state.records.length ? renderRecordRows() : emptyPanel("目前沒有公司行政紀錄。")}
         </div>
+        <div class="section-title"><h3>員工報帳</h3></div>
+        <div class="grid">
+          ${state.expenses.length ? renderExpenseRows() : emptyPanel("目前沒有員工報帳。")}
+        </div>
       `;
       document.querySelector("#recordDate").value = new Date().toISOString().slice(0, 10);
+    }
+
+    function renderExpense() {
+      els.viewRoot.innerHTML = `
+        <form id="expenseForm" class="panel">
+          <div class="field"><label for="expenseItemName">物品名稱</label><input id="expenseItemName" required placeholder="例如：停車費、線材、便當"></div>
+          <div class="field"><label for="expensePurchaseDate">購買時間</label><input id="expensePurchaseDate" type="date" required></div>
+          <div class="field"><label for="expenseReceipt">發票照片</label><input id="expenseReceipt" type="file" accept="image/*" required></div>
+          <button class="primary" type="submit">送出報帳</button>
+        </form>
+        <div class="section-title"><h3>我的報帳</h3></div>
+        <div class="grid">
+          ${state.expenses.length ? renderExpenseRows() : emptyPanel("目前沒有報帳紀錄。")}
+        </div>
+      `;
+      document.querySelector("#expensePurchaseDate").value = new Date().toISOString().slice(0, 10);
     }
 
     function renderPasswordPanel() {
@@ -1256,6 +1310,50 @@
       });
       state.user = user;
       alert("本月工作已更新。");
+      renderApp();
+    }
+
+    function imageFileToDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        if (!file) {
+          reject(new Error("請上傳發票照片"));
+          return;
+        }
+        const img = new Image();
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("發票照片讀取失敗"));
+        reader.onload = () => {
+          img.onerror = () => reject(new Error("發票照片格式不正確"));
+          img.onload = () => {
+            const maxSide = 1200;
+            const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.max(1, Math.round(img.width * scale));
+            canvas.height = Math.max(1, Math.round(img.height * scale));
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL("image/jpeg", 0.74));
+          };
+          img.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function createExpense(event) {
+      event.preventDefault();
+      const receiptFile = document.querySelector("#expenseReceipt").files[0];
+      const receiptImage = await imageFileToDataUrl(receiptFile);
+      const expense = await api("/api/expense-claims", {
+        method: "POST",
+        body: JSON.stringify({
+          requesterId: state.user.id,
+          itemName: document.querySelector("#expenseItemName").value.trim(),
+          purchaseDate: document.querySelector("#expensePurchaseDate").value,
+          receiptImage
+        })
+      });
+      state.expenses.unshift(expense);
       renderApp();
     }
 
@@ -1519,6 +1617,7 @@
       if (event.target.id === "userForm") createUser(event).catch(error => alert(error.message));
       if (event.target.id === "workTypesForm") updateWorkTypes(event).catch(error => alert(error.message));
       if (event.target.id === "passwordForm") updateMyPassword(event).catch(error => alert(error.message));
+      if (event.target.id === "expenseForm") createExpense(event).catch(error => alert(error.message));
       if (event.target.id === "reviewForm") updateReview(event).catch(error => alert(error.message));
       if (event.target.id === "deliveryForm") updateDelivery(event).catch(error => alert(error.message));
     });
