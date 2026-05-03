@@ -1266,6 +1266,12 @@
             <p class="small">${esc(user.email)} · ${user.isBoss ? "老闆" : esc((user.workTypes || []).join(" / ") || "本月工作未設定")}</p>
           </div>
           <strong>${user.isBoss ? "老闆" : "員工"}</strong>
+          ${user.isBoss ? "" : `
+            <form class="delivery-form" data-reset-password-for="${user.id}">
+              <div class="field"><label>新臨時密碼</label><input type="text" name="temporaryPassword" autocomplete="off" autocapitalize="off" spellcheck="false" minlength="6" required placeholder="至少 6 碼"></div>
+              <button class="ghost" type="submit">重設密碼</button>
+            </form>
+          `}
         </div>
       `).join("");
     }
@@ -1296,6 +1302,22 @@
       });
       alert("密碼已更新。");
       document.querySelector("#newPassword").value = "";
+    }
+
+    async function resetEmployeePassword(event) {
+      event.preventDefault();
+      const form = event.target;
+      const employeeId = form.dataset.resetPasswordFor;
+      const password = form.querySelector("[name='temporaryPassword']").value;
+      await api(`/api/users/${employeeId}/password`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          requesterId: state.user.id,
+          password
+        })
+      });
+      alert("員工密碼已重設。");
+      form.reset();
     }
 
     async function updateWorkTypes(event) {
@@ -1615,6 +1637,7 @@
       if (event.target.id === "caseForm") createCase(event).catch(error => alert(error.message));
       if (event.target.id === "companyRecordForm") createCompanyRecord(event).catch(error => alert(error.message));
       if (event.target.id === "userForm") createUser(event).catch(error => alert(error.message));
+      if (event.target.matches("[data-reset-password-for]")) resetEmployeePassword(event).catch(error => alert(error.message));
       if (event.target.id === "workTypesForm") updateWorkTypes(event).catch(error => alert(error.message));
       if (event.target.id === "passwordForm") updateMyPassword(event).catch(error => alert(error.message));
       if (event.target.id === "expenseForm") createExpense(event).catch(error => alert(error.message));
