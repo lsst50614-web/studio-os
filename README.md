@@ -1,6 +1,6 @@
-# Studio OS
+# 稱讚音樂
 
-錄音室與樂器教室內部管理 Web App。
+錄音室營運管理 Web App。
 
 ## Features
 
