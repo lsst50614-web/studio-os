@@ -681,7 +681,7 @@
       "電影配樂": ["劇本分析", "音樂風格會議", "主題曲創作", "配樂錄製", "混音", "交件"]
     };
 
-    const defaultRoles = ["錄音師", "編曲師", "混音師"];
+    const workOptions = Object.keys(caseTypes);
 
     const state = {
       user: null,
@@ -790,7 +790,8 @@
     function visibleCases() {
       if (!state.user) return [];
       if (state.user.isBoss) return state.cases;
-      return state.cases.filter(item => item.owner === state.user.employee);
+      const aliases = [state.user.employee, state.user.label, state.user.email, state.user.role].filter(Boolean);
+      return state.cases.filter(item => aliases.includes(item.owner));
     }
 
     function progressOf(item) {
@@ -926,14 +927,17 @@
     }
 
     function employeeList() {
-      const users = state.users
+      return state.users
         .filter(user => !user.isBoss)
-        .map(user => ({ name: user.role, email: user.email, label: user.label, role: user.role, base: 0, bonusRate: 0 }));
-      const roles = new Set(users.map(user => user.name));
-      defaultRoles.forEach(role => {
-        if (!roles.has(role)) users.push({ name: role, label: role, role, base: 0, bonusRate: 0 });
-      });
-      return users;
+        .map(user => ({
+          name: user.label,
+          email: user.email,
+          label: user.label,
+          role: user.role,
+          workTypes: user.workTypes || [],
+          base: 0,
+          bonusRate: 0
+        }));
     }
 
     function emptyPanel(text = "目前資料庫沒有案件。") {
@@ -992,7 +996,7 @@
               return `<div class="pay-row">
                 <div>
                   <h3>${employee.name}</h3>
-                  <p class="small">${pay.cases} 件案件 · 業績 ${money(pay.revenue)}</p>
+                  <p class="small">${pay.cases} 件案件 · ${employee.workTypes.length ? employee.workTypes.join(" / ") : "本月工作未設定"} · 業績 ${money(pay.revenue)}</p>
                 </div>
                 <strong>${money(pay.total)}</strong>
               </div>`;
@@ -1026,6 +1030,7 @@
         </div>
         <div class="section-title"><h3>案件</h3><button class="ghost" type="button" data-page="cases">查看</button></div>
         <div class="grid">${items.length ? renderCaseCards(items.slice(0, 3)) : emptyPanel("目前沒有指派給你的案件。")}</div>
+        ${renderWorkTypesPanel()}
         ${renderPasswordPanel()}
       `;
     }
@@ -1070,7 +1075,7 @@
           <div class="field"><label for="caseName">案件名稱</label><input id="caseName" required placeholder="案件名稱"></div>
           <div class="field"><label for="caseType">案件種類</label><select id="caseType">${Object.keys(caseTypes).map(type => `<option>${type}</option>`).join("")}</select></div>
           <div class="field"><label for="client">客戶名稱</label><input id="client" required placeholder="客戶或品牌名稱"></div>
-          <div class="field"><label for="owner">負責人</label><select id="owner">${employeeList().map(employee => `<option>${employee.name}</option>`).join("")}</select></div>
+          <div class="field"><label for="owner">負責人</label><select id="owner" required>${employeeList().length ? employeeList().map(employee => `<option value="${esc(employee.name)}">${esc(employee.label)}${employee.workTypes.length ? ` · ${esc(employee.workTypes.join(" / "))}` : " · 未設定本月工作"}</option>`).join("") : `<option value="">請先在行政頁建立員工帳號</option>`}</select></div>
           <div class="grid metrics">
             <div class="field"><label for="start">開始日期</label><input id="start" type="date" required></div>
             <div class="field"><label for="due">截止日期</label><input id="due" type="date" required></div>
@@ -1150,15 +1155,7 @@
         <form id="userForm" class="panel">
           <div class="field"><label for="userEmail">員工 Email</label><input id="userEmail" type="email" autocomplete="email" required placeholder="name@example.com"></div>
           <div class="field"><label for="userName">顯示名稱</label><input id="userName" required placeholder="例如：小王"></div>
-          <div class="grid metrics">
-            <div class="field">
-              <label for="userRole">角色</label>
-              <select id="userRole">
-                ${defaultRoles.map(role => `<option>${role}</option>`).join("")}
-              </select>
-            </div>
-            <div class="field"><label for="userPassword">臨時密碼</label><input id="userPassword" type="text" minlength="6" required placeholder="至少 6 碼"></div>
-          </div>
+          <div class="field"><label for="userPassword">臨時密碼</label><input id="userPassword" type="text" minlength="6" required placeholder="至少 6 碼"></div>
           <button class="primary" type="submit">建立員工帳號</button>
         </form>
         <div class="grid">
@@ -1182,12 +1179,30 @@
       `;
     }
 
+    function renderWorkTypesPanel() {
+      const selected = new Set(state.user.workTypes || []);
+      return `
+        <div class="section-title"><h3>我的本月工作</h3></div>
+        <form id="workTypesForm" class="panel">
+          <div class="checklist">
+            ${workOptions.map(type => `
+              <label class="check-item">
+                <input type="checkbox" name="workType" value="${esc(type)}" ${selected.has(type) ? "checked" : ""}>
+                <span>${esc(type)}</span>
+              </label>
+            `).join("")}
+          </div>
+          <button class="primary" type="submit">更新本月工作</button>
+        </form>
+      `;
+    }
+
     function renderUserRows() {
       return state.users.map(user => `
         <div class="pay-row">
           <div>
             <h3>${esc(user.label)}</h3>
-            <p class="small">${esc(user.email)} · ${esc(user.role)}</p>
+            <p class="small">${esc(user.email)} · ${user.isBoss ? "老闆" : esc((user.workTypes || []).join(" / ") || "本月工作未設定")}</p>
           </div>
           <strong>${user.isBoss ? "老闆" : "員工"}</strong>
         </div>
@@ -1202,7 +1217,6 @@
           requesterId: state.user.id,
           email: document.querySelector("#userEmail").value.trim(),
           displayName: document.querySelector("#userName").value.trim(),
-          role: document.querySelector("#userRole").value,
           password: document.querySelector("#userPassword").value
         })
       });
@@ -1221,6 +1235,21 @@
       });
       alert("密碼已更新。");
       document.querySelector("#newPassword").value = "";
+    }
+
+    async function updateWorkTypes(event) {
+      event.preventDefault();
+      const selected = [...document.querySelectorAll("input[name='workType']:checked")].map(input => input.value);
+      const user = await api(`/api/users/${state.user.id}/work-types`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          requesterId: state.user.id,
+          workTypes: selected
+        })
+      });
+      state.user = user;
+      alert("本月工作已更新。");
+      renderApp();
     }
 
     async function createCompanyRecord(event) {
@@ -1481,6 +1510,7 @@
       if (event.target.id === "caseForm") createCase(event).catch(error => alert(error.message));
       if (event.target.id === "companyRecordForm") createCompanyRecord(event).catch(error => alert(error.message));
       if (event.target.id === "userForm") createUser(event).catch(error => alert(error.message));
+      if (event.target.id === "workTypesForm") updateWorkTypes(event).catch(error => alert(error.message));
       if (event.target.id === "passwordForm") updateMyPassword(event).catch(error => alert(error.message));
       if (event.target.id === "reviewForm") updateReview(event).catch(error => alert(error.message));
       if (event.target.id === "deliveryForm") updateDelivery(event).catch(error => alert(error.message));
