@@ -429,6 +429,10 @@ app.delete("/api/company-records/:id", async (req, res, next) => {
 app.post("/api/cases", async (req, res, next) => {
   try {
     const body = req.body || {};
+    if (body.role !== "owner") {
+      res.status(403).json({ error: "只有老闆可以建立案件" });
+      return;
+    }
     if (!body.name || !body.type || !body.client || !body.owner || !body.start || !body.due) {
       res.status(400).json({ error: "缺少必要欄位" });
       return;
