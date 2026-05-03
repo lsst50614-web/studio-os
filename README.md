@@ -9,6 +9,7 @@
 - Owner-only finance view
 - Owner-only admin records for company status and petty cash
 - Owner-created employee email accounts with hashed passwords
+- Employees choose their monthly work types after logging in
 - Petty cash payment status tracking for paid and pending expenses
 - PostgreSQL-backed API for persistent project data
 - Mobile-first dark UI
