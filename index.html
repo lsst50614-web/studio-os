@@ -634,7 +634,7 @@
         <div class="field">
           <label for="password">密碼</label>
           <input id="password" type="password" autocomplete="current-password" placeholder="輸入密碼">
-          <p class="small">Demo 帳號：boss / recorder / arranger / mixer</p>
+          <p class="small">測試老闆帳號：boss / boss123。員工帳號請由老闆在行政頁新增 email。</p>
         </div>
         <p id="loginError" class="error"></p>
         <button class="primary" type="submit">登入</button>
@@ -672,13 +672,6 @@
   </div>
 
   <script>
-    const accounts = {
-      boss: { label: "老闆", icon: "👑", password: "boss123", isBoss: true },
-      recorder: { label: "錄音師", icon: "🎤", password: "staff123", employee: "錄音師" },
-      arranger: { label: "編曲師", icon: "🎹", password: "staff123", employee: "編曲師" },
-      mixer: { label: "混音師", icon: "🎧", password: "staff123", employee: "混音師" }
-    };
-
     const caseTypes = {
       "錄音": ["前製會議", "錄音 Session 1", "錄音 Session 2", "人聲剪輯", "初混確認", "交件"],
       "混音": ["素材確認", "初混版本", "客戶試聽", "修改版本", "最終確認", "交件"],
@@ -688,11 +681,7 @@
       "電影配樂": ["劇本分析", "音樂風格會議", "主題曲創作", "配樂錄製", "混音", "交件"]
     };
 
-    const employees = [
-      { name: "錄音師", role: "錄音師", base: 0, bonusRate: 0 },
-      { name: "編曲師", role: "編曲師", base: 0, bonusRate: 0 },
-      { name: "混音師", role: "混音師", base: 0, bonusRate: 0 }
-    ];
+    const defaultRoles = ["錄音師", "編曲師", "混音師"];
 
     const state = {
       user: null,
@@ -700,6 +689,7 @@
       filter: "全部",
       cases: [],
       records: [],
+      users: [],
       loading: false,
       apiError: ""
     };
@@ -785,10 +775,12 @@
         ]);
         state.cases = cases;
         state.records = records;
+        if (state.user.isBoss) state.users = await api(`/api/users?requesterId=${state.user.id}`);
       } catch (error) {
         state.apiError = error.message;
         state.cases = [];
         state.records = [];
+        state.users = [];
       } finally {
         state.loading = false;
         renderApp();
@@ -822,9 +814,17 @@
 
     async function login(event) {
       event.preventDefault();
-      const account = accounts[els.username.value.trim().toLowerCase()];
-      if (!account || els.password.value !== account.password) {
-        els.loginError.textContent = "帳號或密碼不正確，請再試一次。";
+      let account;
+      try {
+        account = await api("/api/login", {
+          method: "POST",
+          body: JSON.stringify({
+            email: els.username.value.trim().toLowerCase(),
+            password: els.password.value
+          })
+        });
+      } catch (error) {
+        els.loginError.textContent = error.message;
         return;
       }
       state.user = account;
@@ -912,7 +912,7 @@
     }
 
     function payrollFor(name) {
-      const employee = employees.find(item => item.name === name);
+      const employee = employeeList().find(item => item.name === name);
       const doneCases = state.cases.filter(item => item.owner === name && item.status === "已完成");
       const revenue = doneCases.reduce((sum, item) => sum + Number(item.quote || 0), 0);
       const bonus = Math.round(revenue * (employee?.bonusRate || 0));
@@ -923,6 +923,17 @@
         cases: state.cases.filter(item => item.owner === name).length,
         revenue
       };
+    }
+
+    function employeeList() {
+      const users = state.users
+        .filter(user => !user.isBoss)
+        .map(user => ({ name: user.role, email: user.email, label: user.label, role: user.role, base: 0, bonusRate: 0 }));
+      const roles = new Set(users.map(user => user.name));
+      defaultRoles.forEach(role => {
+        if (!roles.has(role)) users.push({ name: role, label: role, role, base: 0, bonusRate: 0 });
+      });
+      return users;
     }
 
     function emptyPanel(text = "目前資料庫沒有案件。") {
@@ -976,7 +987,7 @@
           </div>
           <div class="section-title"><h3>員工概覽</h3></div>
           <div class="grid">
-            ${employees.map(employee => {
+            ${employeeList().map(employee => {
               const pay = payrollFor(employee.name);
               return `<div class="pay-row">
                 <div>
@@ -995,6 +1006,7 @@
           <div class="grid">${state.records.length ? renderRecordRows(state.records.slice(0, 2)) : emptyPanel("目前沒有公司行政紀錄。")}</div>
           <div class="section-title"><h3>近期案件</h3><button class="ghost" type="button" data-page="cases">查看</button></div>
           <div class="grid">${items.length ? renderCaseCards(items.slice(0, 3)) : emptyPanel()}</div>
+          ${renderPasswordPanel()}
         `;
         return;
       }
@@ -1014,6 +1026,7 @@
         </div>
         <div class="section-title"><h3>案件</h3><button class="ghost" type="button" data-page="cases">查看</button></div>
         <div class="grid">${items.length ? renderCaseCards(items.slice(0, 3)) : emptyPanel("目前沒有指派給你的案件。")}</div>
+        ${renderPasswordPanel()}
       `;
     }
 
@@ -1057,7 +1070,7 @@
           <div class="field"><label for="caseName">案件名稱</label><input id="caseName" required placeholder="案件名稱"></div>
           <div class="field"><label for="caseType">案件種類</label><select id="caseType">${Object.keys(caseTypes).map(type => `<option>${type}</option>`).join("")}</select></div>
           <div class="field"><label for="client">客戶名稱</label><input id="client" required placeholder="客戶或品牌名稱"></div>
-          <div class="field"><label for="owner">負責人</label><select id="owner">${employees.map(employee => `<option>${employee.name}</option>`).join("")}</select></div>
+          <div class="field"><label for="owner">負責人</label><select id="owner">${employeeList().map(employee => `<option>${employee.name}</option>`).join("")}</select></div>
           <div class="grid metrics">
             <div class="field"><label for="start">開始日期</label><input id="start" type="date" required></div>
             <div class="field"><label for="due">截止日期</label><input id="due" type="date" required></div>
@@ -1133,12 +1146,81 @@
           <div class="field"><label for="recordNotes">內容</label><textarea id="recordNotes" placeholder="公司狀態、處理進度、支出原因、收據位置"></textarea></div>
           <button class="primary" type="submit">新增行政紀錄</button>
         </form>
+        <div class="section-title"><h3>員工帳號</h3></div>
+        <form id="userForm" class="panel">
+          <div class="field"><label for="userEmail">員工 Email</label><input id="userEmail" type="email" autocomplete="email" required placeholder="name@example.com"></div>
+          <div class="field"><label for="userName">顯示名稱</label><input id="userName" required placeholder="例如：小王"></div>
+          <div class="grid metrics">
+            <div class="field">
+              <label for="userRole">角色</label>
+              <select id="userRole">
+                ${defaultRoles.map(role => `<option>${role}</option>`).join("")}
+              </select>
+            </div>
+            <div class="field"><label for="userPassword">臨時密碼</label><input id="userPassword" type="text" minlength="6" required placeholder="至少 6 碼"></div>
+          </div>
+          <button class="primary" type="submit">建立員工帳號</button>
+        </form>
+        <div class="grid">
+          ${state.users.length ? renderUserRows() : emptyPanel("目前只有老闆帳號。")}
+        </div>
         <div class="section-title"><h3>行政紀錄</h3></div>
         <div class="grid">
           ${state.records.length ? renderRecordRows() : emptyPanel("目前沒有公司行政紀錄。")}
         </div>
       `;
       document.querySelector("#recordDate").value = new Date().toISOString().slice(0, 10);
+    }
+
+    function renderPasswordPanel() {
+      return `
+        <div class="section-title"><h3>我的密碼</h3></div>
+        <form id="passwordForm" class="panel">
+          <div class="field"><label for="newPassword">新密碼</label><input id="newPassword" type="password" autocomplete="new-password" minlength="6" required placeholder="至少 6 碼"></div>
+          <button class="primary" type="submit">更新我的密碼</button>
+        </form>
+      `;
+    }
+
+    function renderUserRows() {
+      return state.users.map(user => `
+        <div class="pay-row">
+          <div>
+            <h3>${esc(user.label)}</h3>
+            <p class="small">${esc(user.email)} · ${esc(user.role)}</p>
+          </div>
+          <strong>${user.isBoss ? "老闆" : "員工"}</strong>
+        </div>
+      `).join("");
+    }
+
+    async function createUser(event) {
+      event.preventDefault();
+      const user = await api("/api/users", {
+        method: "POST",
+        body: JSON.stringify({
+          requesterId: state.user.id,
+          email: document.querySelector("#userEmail").value.trim(),
+          displayName: document.querySelector("#userName").value.trim(),
+          role: document.querySelector("#userRole").value,
+          password: document.querySelector("#userPassword").value
+        })
+      });
+      state.users.push(user);
+      renderApp();
+    }
+
+    async function updateMyPassword(event) {
+      event.preventDefault();
+      await api(`/api/users/${state.user.id}/password`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          requesterId: state.user.id,
+          password: document.querySelector("#newPassword").value
+        })
+      });
+      alert("密碼已更新。");
+      document.querySelector("#newPassword").value = "";
     }
 
     async function createCompanyRecord(event) {
@@ -1174,7 +1256,7 @@
       const paid = state.cases.filter(item => item.status === "已完成").reduce((sum, item) => sum + item.quote, 0);
       const receivable = state.cases.filter(item => item.status === "待驗收").reduce((sum, item) => sum + item.quote, 0);
       const active = state.cases.filter(item => item.status === "製作中").reduce((sum, item) => sum + item.quote, 0);
-      const salary = employees.reduce((sum, employee) => sum + payrollFor(employee.name).total, 0);
+      const salary = employeeList().reduce((sum, employee) => sum + payrollFor(employee.name).total, 0);
       const pettyCash = monthlyPettyCash();
       const pendingCash = pendingPettyCash();
       els.viewRoot.innerHTML = `
@@ -1188,7 +1270,7 @@
         </div>
         <div class="section-title"><h3>薪資支出</h3><strong>${money(salary)}</strong></div>
         <div class="grid">
-          ${employees.map(employee => {
+          ${employeeList().map(employee => {
             const pay = payrollFor(employee.name);
             return `<div class="pay-row">
               <div><h3>${employee.name}</h3><p class="small">底薪 ${money(pay.base)} · 獎金 ${money(pay.bonus)}</p></div>
@@ -1398,6 +1480,8 @@
     document.addEventListener("submit", event => {
       if (event.target.id === "caseForm") createCase(event).catch(error => alert(error.message));
       if (event.target.id === "companyRecordForm") createCompanyRecord(event).catch(error => alert(error.message));
+      if (event.target.id === "userForm") createUser(event).catch(error => alert(error.message));
+      if (event.target.id === "passwordForm") updateMyPassword(event).catch(error => alert(error.message));
       if (event.target.id === "reviewForm") updateReview(event).catch(error => alert(error.message));
       if (event.target.id === "deliveryForm") updateDelivery(event).catch(error => alert(error.message));
     });
