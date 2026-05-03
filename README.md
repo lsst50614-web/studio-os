@@ -11,6 +11,7 @@
 - Owner-created employee email accounts with hashed passwords
 - Employees choose their monthly work types after logging in
 - Owner-only case creation and assignment
+- Staff expense claims with receipt photo upload
 - Petty cash payment status tracking for paid and pending expenses
 - PostgreSQL-backed API for persistent project data
 - Mobile-first dark UI
