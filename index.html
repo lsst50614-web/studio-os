@@ -1162,7 +1162,7 @@
         <form id="userForm" class="panel">
           <div class="field"><label for="userEmail">員工 Email</label><input id="userEmail" type="email" autocomplete="email" required placeholder="name@example.com"></div>
           <div class="field"><label for="userName">顯示名稱</label><input id="userName" required placeholder="例如：小王"></div>
-          <div class="field"><label for="userPassword">臨時密碼</label><input id="userPassword" type="text" minlength="6" required placeholder="至少 6 碼"></div>
+          <div class="field"><label for="userPassword">臨時密碼</label><input id="userPassword" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" minlength="6" required placeholder="至少 6 碼"></div>
           <button class="primary" type="submit">建立員工帳號</button>
         </form>
         <div class="grid">
@@ -1180,7 +1180,7 @@
       return `
         <div class="section-title"><h3>我的密碼</h3></div>
         <form id="passwordForm" class="panel">
-          <div class="field"><label for="newPassword">新密碼</label><input id="newPassword" type="password" autocomplete="new-password" minlength="6" required placeholder="至少 6 碼"></div>
+          <div class="field"><label for="newPassword">新密碼</label><input id="newPassword" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" minlength="6" required placeholder="手動輸入新密碼"></div>
           <button class="primary" type="submit">更新我的密碼</button>
         </form>
       `;
