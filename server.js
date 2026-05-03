@@ -28,7 +28,7 @@ const recordKinds = new Set(["公司狀態", "零用金"]);
 const paymentStatuses = new Set(["未支出", "已支出"]);
 const workTypes = new Set(Object.keys(caseTypes));
 
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "6mb" }));
 app.use(express.static(__dirname, {
   extensions: ["html"],
   index: "index.html"
@@ -98,6 +98,18 @@ async function initDb() {
       is_boss BOOLEAN NOT NULL DEFAULT false,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS studio_expense_claims (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES studio_users(id) ON DELETE SET NULL,
+      employee_name TEXT NOT NULL,
+      item_name TEXT NOT NULL,
+      purchased_at DATE NOT NULL,
+      receipt_image TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
 
@@ -194,6 +206,18 @@ function toUser(row) {
     icon: row.is_boss ? "👑" : "👤",
     isBoss: Boolean(row.is_boss),
     workTypes: Array.isArray(row.work_types) ? row.work_types : []
+  };
+}
+
+function toExpenseClaim(row) {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    employeeName: row.employee_name,
+    itemName: row.item_name,
+    purchaseDate: row.purchased_at instanceof Date ? row.purchased_at.toISOString().slice(0, 10) : row.purchased_at,
+    receiptImage: row.receipt_image || "",
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at
   };
 }
 
@@ -378,6 +402,59 @@ app.get("/api/company-records", async (_req, res, next) => {
   try {
     const { rows } = await pool.query("SELECT * FROM studio_company_records ORDER BY occurred_on DESC, created_at DESC");
     res.json(rows.map(toCompanyRecord));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/expense-claims", async (req, res, next) => {
+  try {
+    const requesterId = Number(req.query.requesterId);
+    const requester = await pool.query("SELECT * FROM studio_users WHERE id = $1", [requesterId]);
+    if (!requester.rows[0]) {
+      res.status(403).json({ error: "沒有權限讀取報帳" });
+      return;
+    }
+
+    const query = requester.rows[0].is_boss
+      ? ["SELECT * FROM studio_expense_claims ORDER BY purchased_at DESC, created_at DESC", []]
+      : ["SELECT * FROM studio_expense_claims WHERE user_id = $1 ORDER BY purchased_at DESC, created_at DESC", [requesterId]];
+    const { rows } = await pool.query(query[0], query[1]);
+    res.json(rows.map(toExpenseClaim));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/expense-claims", async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const requesterId = Number(body.requesterId);
+    const requester = await pool.query("SELECT * FROM studio_users WHERE id = $1", [requesterId]);
+    if (!requester.rows[0]) {
+      res.status(403).json({ error: "沒有權限新增報帳" });
+      return;
+    }
+
+    const itemName = cleanText(body.itemName);
+    const purchaseDate = cleanText(body.purchaseDate);
+    const receiptImage = cleanText(body.receiptImage);
+    if (!itemName || !purchaseDate || !receiptImage) {
+      res.status(400).json({ error: "請填寫物品名稱、購買時間，並上傳發票照片" });
+      return;
+    }
+    if (!receiptImage.startsWith("data:image/") || receiptImage.length > 5_000_000) {
+      res.status(400).json({ error: "發票照片格式不正確或檔案太大" });
+      return;
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO studio_expense_claims (user_id, employee_name, item_name, purchased_at, receipt_image)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [requesterId, requester.rows[0].display_name, itemName, purchaseDate, receiptImage]
+    );
+    res.status(201).json(toExpenseClaim(rows[0]));
   } catch (error) {
     next(error);
   }
