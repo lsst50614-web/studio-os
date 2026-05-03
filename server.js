@@ -26,7 +26,7 @@ const caseTypes = {
 const statuses = new Set(["新接案", "製作中", "待驗收", "需修改", "已完成", "暫緩"]);
 const recordKinds = new Set(["公司狀態", "零用金"]);
 const paymentStatuses = new Set(["未支出", "已支出"]);
-const userRoles = new Set(["老闆", "錄音師", "編曲師", "混音師"]);
+const workTypes = new Set(Object.keys(caseTypes));
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(__dirname, {
@@ -94,10 +94,16 @@ async function initDb() {
       role TEXT NOT NULL,
       password_hash TEXT NOT NULL,
       password_salt TEXT NOT NULL,
+      work_types JSONB NOT NULL DEFAULT '[]'::jsonb,
       is_boss BOOLEAN NOT NULL DEFAULT false,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+  `);
+
+  await pool.query(`
+    ALTER TABLE studio_users
+      ADD COLUMN IF NOT EXISTS work_types JSONB NOT NULL DEFAULT '[]'::jsonb;
   `);
 
   const { rows } = await pool.query("SELECT COUNT(*)::int AS count FROM studio_users");
@@ -184,17 +190,11 @@ function toUser(row) {
     email: row.email,
     label: row.display_name,
     role: row.role,
-    employee: row.is_boss ? "" : row.role,
-    icon: row.is_boss ? "👑" : roleIcon(row.role),
-    isBoss: Boolean(row.is_boss)
+    employee: row.is_boss ? "" : row.display_name,
+    icon: row.is_boss ? "👑" : "👤",
+    isBoss: Boolean(row.is_boss),
+    workTypes: Array.isArray(row.work_types) ? row.work_types : []
   };
-}
-
-function roleIcon(role) {
-  if (role === "錄音師") return "🎤";
-  if (role === "編曲師") return "🎹";
-  if (role === "混音師") return "🎧";
-  return "👤";
 }
 
 async function nextCaseId() {
@@ -253,7 +253,7 @@ app.get("/api/users", async (_req, res, next) => {
       res.status(403).json({ error: "只有老闆可以讀取員工帳號" });
       return;
     }
-    const { rows } = await pool.query("SELECT * FROM studio_users ORDER BY is_boss DESC, role, display_name");
+    const { rows } = await pool.query("SELECT * FROM studio_users ORDER BY is_boss DESC, display_name");
     res.json(rows.map(toUser));
   } catch (error) {
     next(error);
@@ -271,14 +271,9 @@ app.post("/api/users", async (req, res, next) => {
 
     const email = cleanEmail(body.email);
     const displayName = cleanText(body.displayName);
-    const role = cleanText(body.role);
     const password = String(body.password || "");
-    if (!email || !displayName || !role || !password) {
+    if (!email || !displayName || !password) {
       res.status(400).json({ error: "缺少必要欄位" });
-      return;
-    }
-    if (!userRoles.has(role) || role === "老闆") {
-      res.status(400).json({ error: "員工角色不正確" });
       return;
     }
     if (password.length < 6) {
@@ -291,7 +286,7 @@ app.post("/api/users", async (req, res, next) => {
       `INSERT INTO studio_users (email, display_name, role, password_hash, password_salt, is_boss)
        VALUES ($1, $2, $3, $4, $5, false)
        RETURNING *`,
-      [email, displayName, role, hashed.hash, hashed.salt]
+      [email, displayName, "員工", hashed.hash, hashed.salt]
     );
     res.status(201).json(toUser(rows[0]));
   } catch (error) {
@@ -299,6 +294,41 @@ app.post("/api/users", async (req, res, next) => {
       res.status(409).json({ error: "這個 email 已經建立過帳號" });
       return;
     }
+    next(error);
+  }
+});
+
+app.patch("/api/users/:id/work-types", async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const requesterId = Number(body.requesterId);
+    const targetId = Number(req.params.id);
+    const selected = Array.isArray(body.workTypes) ? body.workTypes.filter(item => workTypes.has(item)) : [];
+    if (!targetId || !requesterId) {
+      res.status(400).json({ error: "缺少使用者資訊" });
+      return;
+    }
+
+    const requester = await pool.query("SELECT * FROM studio_users WHERE id = $1", [requesterId]);
+    if (!requester.rows[0] || (!requester.rows[0].is_boss && requesterId !== targetId)) {
+      res.status(403).json({ error: "沒有權限更新工作項目" });
+      return;
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE studio_users
+       SET work_types = $1::jsonb,
+           updated_at = now()
+       WHERE id = $2
+       RETURNING *`,
+      [JSON.stringify([...new Set(selected)]), targetId]
+    );
+    if (!rows[0]) {
+      res.status(404).json({ error: "找不到使用者" });
+      return;
+    }
+    res.json(toUser(rows[0]));
+  } catch (error) {
     next(error);
   }
 });
