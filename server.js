@@ -1,4 +1,5 @@
 import express from "express";
+import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
@@ -25,6 +26,7 @@ const caseTypes = {
 const statuses = new Set(["新接案", "製作中", "待驗收", "需修改", "已完成", "暫緩"]);
 const recordKinds = new Set(["公司狀態", "零用金"]);
 const paymentStatuses = new Set(["未支出", "已支出"]);
+const userRoles = new Set(["老闆", "錄音師", "編曲師", "混音師"]);
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(__dirname, {
@@ -83,6 +85,30 @@ async function initDb() {
     ALTER TABLE studio_company_records
       ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT '已支出';
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS studio_users (
+      id SERIAL PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      display_name TEXT NOT NULL,
+      role TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      password_salt TEXT NOT NULL,
+      is_boss BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
+  const { rows } = await pool.query("SELECT COUNT(*)::int AS count FROM studio_users");
+  if (rows[0].count === 0) {
+    const password = hashPassword("boss123");
+    await pool.query(
+      `INSERT INTO studio_users (email, display_name, role, password_hash, password_salt, is_boss)
+       VALUES ($1, $2, $3, $4, $5, true)`,
+      ["boss", "老闆", "老闆", password.hash, password.salt]
+    );
+  }
 }
 
 function toCase(row) {
@@ -123,6 +149,22 @@ function cleanUrl(value) {
   }
 }
 
+function cleanEmail(value) {
+  return cleanText(value).toLowerCase();
+}
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto.pbkdf2Sync(String(password), salt, 120000, 32, "sha256").toString("hex");
+  return { hash, salt };
+}
+
+function verifyPassword(password, salt, expectedHash) {
+  const actual = crypto.pbkdf2Sync(String(password), salt, 120000, 32, "sha256");
+  const expected = Buffer.from(expectedHash, "hex");
+  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+}
+
 function toCompanyRecord(row) {
   return {
     id: row.id,
@@ -134,6 +176,25 @@ function toCompanyRecord(row) {
     notes: row.notes || "",
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at
   };
+}
+
+function toUser(row) {
+  return {
+    id: row.id,
+    email: row.email,
+    label: row.display_name,
+    role: row.role,
+    employee: row.is_boss ? "" : row.role,
+    icon: row.is_boss ? "👑" : roleIcon(row.role),
+    isBoss: Boolean(row.is_boss)
+  };
+}
+
+function roleIcon(role) {
+  if (role === "錄音師") return "🎤";
+  if (role === "編曲師") return "🎹";
+  if (role === "混音師") return "🎧";
+  return "👤";
 }
 
 async function nextCaseId() {
@@ -158,6 +219,126 @@ app.get("/api/cases", async (_req, res, next) => {
   try {
     const { rows } = await pool.query("SELECT * FROM studio_cases ORDER BY created_at DESC");
     res.json(rows.map(toCase));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/login", async (req, res, next) => {
+  try {
+    const email = cleanEmail(req.body?.email);
+    const password = String(req.body?.password || "");
+    if (!email || !password) {
+      res.status(400).json({ error: "請輸入帳號與密碼" });
+      return;
+    }
+
+    const { rows } = await pool.query("SELECT * FROM studio_users WHERE lower(email) = $1", [email]);
+    const user = rows[0];
+    if (!user || !verifyPassword(password, user.password_salt, user.password_hash)) {
+      res.status(401).json({ error: "帳號或密碼不正確，請再試一次。" });
+      return;
+    }
+    res.json(toUser(user));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/users", async (_req, res, next) => {
+  try {
+    const requesterId = Number(_req.query.requesterId);
+    const requester = await pool.query("SELECT is_boss FROM studio_users WHERE id = $1", [requesterId]);
+    if (!requester.rows[0]?.is_boss) {
+      res.status(403).json({ error: "只有老闆可以讀取員工帳號" });
+      return;
+    }
+    const { rows } = await pool.query("SELECT * FROM studio_users ORDER BY is_boss DESC, role, display_name");
+    res.json(rows.map(toUser));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/users", async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const requester = await pool.query("SELECT is_boss FROM studio_users WHERE id = $1", [Number(body.requesterId)]);
+    if (!requester.rows[0]?.is_boss) {
+      res.status(403).json({ error: "只有老闆可以新增員工帳號" });
+      return;
+    }
+
+    const email = cleanEmail(body.email);
+    const displayName = cleanText(body.displayName);
+    const role = cleanText(body.role);
+    const password = String(body.password || "");
+    if (!email || !displayName || !role || !password) {
+      res.status(400).json({ error: "缺少必要欄位" });
+      return;
+    }
+    if (!userRoles.has(role) || role === "老闆") {
+      res.status(400).json({ error: "員工角色不正確" });
+      return;
+    }
+    if (password.length < 6) {
+      res.status(400).json({ error: "密碼至少需要 6 碼" });
+      return;
+    }
+
+    const hashed = hashPassword(password);
+    const { rows } = await pool.query(
+      `INSERT INTO studio_users (email, display_name, role, password_hash, password_salt, is_boss)
+       VALUES ($1, $2, $3, $4, $5, false)
+       RETURNING *`,
+      [email, displayName, role, hashed.hash, hashed.salt]
+    );
+    res.status(201).json(toUser(rows[0]));
+  } catch (error) {
+    if (error.code === "23505") {
+      res.status(409).json({ error: "這個 email 已經建立過帳號" });
+      return;
+    }
+    next(error);
+  }
+});
+
+app.patch("/api/users/:id/password", async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const requesterId = Number(body.requesterId);
+    const targetId = Number(req.params.id);
+    const password = String(body.password || "");
+    if (!targetId || !requesterId) {
+      res.status(400).json({ error: "缺少使用者資訊" });
+      return;
+    }
+    if (password.length < 6) {
+      res.status(400).json({ error: "密碼至少需要 6 碼" });
+      return;
+    }
+
+    const requester = await pool.query("SELECT * FROM studio_users WHERE id = $1", [requesterId]);
+    if (!requester.rows[0] || (!requester.rows[0].is_boss && requesterId !== targetId)) {
+      res.status(403).json({ error: "沒有權限更新這個密碼" });
+      return;
+    }
+
+    const hashed = hashPassword(password);
+    const { rows } = await pool.query(
+      `UPDATE studio_users
+       SET password_hash = $1,
+           password_salt = $2,
+           updated_at = now()
+       WHERE id = $3
+       RETURNING *`,
+      [hashed.hash, hashed.salt, targetId]
+    );
+    if (!rows[0]) {
+      res.status(404).json({ error: "找不到使用者" });
+      return;
+    }
+    res.json(toUser(rows[0]));
   } catch (error) {
     next(error);
   }
