@@ -850,10 +850,10 @@
     function navItems() {
       const items = [
         { key: "home", label: "首頁", icon: "home" },
-        { key: "cases", label: "案件", icon: "briefcase" },
-        { key: "new", label: "新增", icon: "plus" }
+        { key: "cases", label: "案件", icon: "briefcase" }
       ];
       if (state.user.isBoss) {
+        items.push({ key: "new", label: "新增", icon: "plus" });
         items.push({ key: "company", label: "行政", icon: "clipboard" });
         items.push({ key: "finance", label: "財務", icon: "chart" });
       }
@@ -882,6 +882,7 @@
 
     function renderApp() {
       if (!state.user) return;
+      if (!state.user.isBoss && !["home", "cases"].includes(state.page)) state.page = "home";
       renderNav();
       const titleMap = { home: "首頁", cases: "案件管理", new: "新增案件", company: "行政", finance: "財務" };
       els.pageTitle.textContent = titleMap[state.page];
@@ -1069,6 +1070,11 @@
     }
 
     function renderNewCase() {
+      if (!state.user.isBoss) {
+        state.page = "home";
+        renderApp();
+        return;
+      }
       const canSeeMoney = state.user.isBoss;
       els.viewRoot.innerHTML = `
         <form id="caseForm" class="panel">
@@ -1105,6 +1111,7 @@
         quote: state.user.isBoss ? Number(document.querySelector("#quote").value || 0) : 0,
         cost: state.user.isBoss ? Number(document.querySelector("#cost").value || 0) : 0,
         status: document.querySelector("#status").value,
+        role: state.user.isBoss ? "owner" : "staff",
         notes: document.querySelector("#notes").value.trim(),
         driveFolderUrl: document.querySelector("#driveFolderUrl").value.trim(),
         sourceMaterialUrl: document.querySelector("#sourceMaterialUrl").value.trim()
