@@ -583,13 +583,28 @@
     }
 
     .review-band {
-      border: 1px solid rgba(255, 111, 125, .34);
-      background: rgba(255, 111, 125, .08);
+      border: 1px solid rgba(85, 200, 232, .24);
+      background: rgba(85, 200, 232, .06);
       border-radius: 8px;
       padding: 12px;
       margin-top: 12px;
       display: grid;
       gap: 10px;
+    }
+
+    .review-band.pending {
+      border-color: rgba(79, 209, 139, .28);
+      background: rgba(79, 209, 139, .07);
+    }
+
+    .review-band.rejected {
+      border: 1px solid rgba(255, 111, 125, .34);
+      background: rgba(255, 111, 125, .08);
+    }
+
+    .review-band.done {
+      border-color: rgba(127, 145, 165, .28);
+      background: rgba(127, 145, 165, .06);
     }
 
     .form-actions {
@@ -1613,6 +1628,47 @@
       `).join("");
     }
 
+    function renderReviewBand(item) {
+      if (item.status === "需修改") {
+        return `
+          <div class="review-band rejected">
+            <div class="split"><h3>驗收建議</h3><span class="small">需修改</span></div>
+            <p class="muted">${esc(item.reviewNotes || "老闆已標記需修改，但尚未留下修改說明。")}</p>
+            <form id="reviewForm" class="${state.user.isBoss ? "delivery-form" : "hidden"}" data-review-for="${esc(item.id)}">
+              <div class="field"><label for="modalReviewNotes">老闆建議</label><textarea id="modalReviewNotes" placeholder="寫下哪裡不 OK、要怎麼修、交回版本規格">${esc(item.reviewNotes || "")}</textarea></div>
+              <button class="primary" type="submit">更新修改建議</button>
+            </form>
+          </div>
+        `;
+      }
+      if (item.status === "待驗收") {
+        return `
+          <div class="review-band pending">
+            <div class="split"><h3>驗收</h3><span class="small">等待老闆確認</span></div>
+            <p class="muted">${esc(item.reviewNotes || "員工已交付，老闆確認內容後，可以直接把狀態改成已完成；如果不 OK，再填修改建議。")}</p>
+            <form id="reviewForm" class="${state.user.isBoss ? "delivery-form" : "hidden"}" data-review-for="${esc(item.id)}">
+              <div class="field"><label for="modalReviewNotes">修改建議</label><textarea id="modalReviewNotes" placeholder="只有需要打回修改時才填">${esc(item.reviewNotes || "")}</textarea></div>
+              <button class="primary" type="submit">標記需修改</button>
+            </form>
+          </div>
+        `;
+      }
+      if (item.status === "已完成") {
+        return `
+          <div class="review-band done">
+            <div class="split"><h3>驗收</h3><span class="small">已完成</span></div>
+            <p class="muted">${esc(item.reviewNotes || "案件已完成驗收。")}</p>
+          </div>
+        `;
+      }
+      return `
+        <div class="review-band">
+          <div class="split"><h3>驗收</h3><span class="small">尚未進入驗收階段</span></div>
+          <p class="muted">目前不用填驗收建議。等員工交付後，案件進到待驗收，再由老闆確認是否通過或需要修改。</p>
+        </div>
+      `;
+    }
+
     function openCase(id) {
       const item = state.cases.find(entry => entry.id === id);
       if (!item) return;
@@ -1666,17 +1722,7 @@
             <button class="primary" type="submit">儲存交付資訊</button>
           </form>
         </div>
-        <div class="review-band">
-          <div class="split">
-            <h3>驗收建議</h3>
-            <span class="small">${item.status === "需修改" ? "需修改" : "尚未打回"}</span>
-          </div>
-          <p class="muted">${esc(item.reviewNotes || "目前沒有驗收建議。")}</p>
-          <form id="reviewForm" class="${state.user.isBoss ? "delivery-form" : "hidden"}" data-review-for="${esc(item.id)}">
-            <div class="field"><label for="modalReviewNotes">老闆建議</label><textarea id="modalReviewNotes" placeholder="寫下哪裡不 OK、要怎麼修、交回版本規格">${esc(item.reviewNotes || "")}</textarea></div>
-            <button class="primary" type="submit">標記需修改</button>
-          </form>
-        </div>
+        ${renderReviewBand(item)}
         <div class="${canSeeMoney ? "money-band" : "hidden"}">
           <div class="split"><span>報價金額</span><strong>${money(item.quote)}</strong></div>
           <div class="split"><span>預估成本</span><strong>${money(item.cost)}</strong></div>
