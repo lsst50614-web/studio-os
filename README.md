@@ -6,6 +6,7 @@
 
 - Account-based login for owner and staff views
 - Case management with status filters and checklist progress
+- Owner can edit case notes after creation
 - Owner-only finance view
 - Owner-only admin records for company status and petty cash
 - Owner-created employee email accounts with hashed passwords
