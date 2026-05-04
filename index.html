@@ -1258,37 +1258,43 @@
         : `<option value="">請先在行政頁建立員工帳號</option>`;
     }
 
-    function renderRentalPanel() {
+    function isHourlyCase(type) {
+      return ["錄音", "錄音室租借"].includes(type);
+    }
+
+    function renderHourlyPanel() {
       return `
-        <div id="rentalPanel" class="rental-panel hidden">
+        <div id="hourlyPanel" class="rental-panel hidden">
           <div class="split">
-            <h3>錄音室租借</h3>
+            <h3 id="hourlyPanelTitle">時數計價</h3>
             <span class="small">報價可自動用時數計算</span>
           </div>
           <div class="field">
-            <label for="rentalPricingPreset">價格類型</label>
-            <select id="rentalPricingPreset">
+            <label for="hourlyPricingPreset">價格類型</label>
+            <select id="hourlyPricingPreset">
               <option value="custom">自訂價格</option>
+              <option value="recording">錄音 1200 / 小時</option>
               <option value="friend">熟人價 1000 / 小時</option>
               <option value="standard">一般外部 1200 / 小時</option>
               <option value="partner">前員工帶單 1500 / 小時，員工 7 成、晨嵐 3 成</option>
             </select>
           </div>
           <div class="grid metrics">
-            <div class="field"><label for="rentalHours">租借時數</label><input id="rentalHours" type="number" min="0" step="0.5" inputmode="decimal" value="0"></div>
-            <div class="field"><label for="rentalHourlyRate">每小時金額</label><input id="rentalHourlyRate" type="number" min="0" inputmode="numeric" value="0"></div>
+            <div class="field"><label for="hourlyHours">時數</label><input id="hourlyHours" type="number" min="0" step="0.5" inputmode="decimal" value="0"></div>
+            <div class="field"><label for="hourlyRate">每小時金額</label><input id="hourlyRate" type="number" min="0" inputmode="numeric" value="0"></div>
           </div>
-          <p class="small">前員工帶單會把第一筆分潤設為 70%，剩下 30% 留給晨嵐。</p>
+          <p class="small">如果要 7/3 拆，分潤方式選百分比並填 70；前員工帶單選項會自動幫你填第一筆 70%。</p>
         </div>
       `;
     }
 
-    function setupRentalControls() {
+    function setupHourlyControls() {
       const caseType = document.querySelector("#caseType");
-      const panel = document.querySelector("#rentalPanel");
-      const preset = document.querySelector("#rentalPricingPreset");
-      const hours = document.querySelector("#rentalHours");
-      const rate = document.querySelector("#rentalHourlyRate");
+      const panel = document.querySelector("#hourlyPanel");
+      const title = document.querySelector("#hourlyPanelTitle");
+      const preset = document.querySelector("#hourlyPricingPreset");
+      const hours = document.querySelector("#hourlyHours");
+      const rate = document.querySelector("#hourlyRate");
       const quote = document.querySelector("#quote");
       const firstSplitEmployee = document.querySelector("[data-split-employee]");
       const firstSplitWorkType = document.querySelector("[data-split-work-type]");
@@ -1297,12 +1303,13 @@
       const firstSplitNote = document.querySelector("[data-split-note]");
 
       const refreshQuote = () => {
-        if (caseType.value !== "錄音室租借") return;
+        if (!isHourlyCase(caseType.value)) return;
         const total = Math.round(Number(hours.value || 0) * Number(rate.value || 0));
         quote.value = String(total);
       };
 
       const applyPreset = () => {
+        if (preset.value === "recording") rate.value = "1200";
         if (preset.value === "friend") rate.value = "1000";
         if (preset.value === "standard") rate.value = "1200";
         if (preset.value === "partner") {
@@ -1316,17 +1323,19 @@
         refreshQuote();
       };
 
-      const toggleRental = () => {
-        const isRental = caseType.value === "錄音室租借";
-        panel.classList.toggle("hidden", !isRental);
-        if (isRental) applyPreset();
+      const toggleHourly = () => {
+        const enabled = isHourlyCase(caseType.value);
+        panel.classList.toggle("hidden", !enabled);
+        title.textContent = caseType.value === "錄音" ? "錄音時數" : "錄音室租借";
+        if (caseType.value === "錄音" && preset.value === "custom" && !rate.value) preset.value = "recording";
+        if (enabled) applyPreset();
       };
 
-      caseType.addEventListener("change", toggleRental);
+      caseType.addEventListener("change", toggleHourly);
       preset.addEventListener("change", applyPreset);
       hours.addEventListener("input", refreshQuote);
       rate.addEventListener("input", refreshQuote);
-      toggleRental();
+      toggleHourly();
     }
 
     function renderNewCase() {
@@ -1347,7 +1356,7 @@
             <div class="field"><label for="due">截止日期</label><input id="due" type="date" required></div>
           </div>
           <div class="field"><label for="status">案件狀態</label><select id="status">${statusOptions("新接案").map(status => `<option>${status}</option>`).join("")}</select></div>
-          ${renderRentalPanel()}
+          ${renderHourlyPanel()}
           <div class="field ${canSeeMoney ? "" : "hidden"}"><label for="quote">報價金額</label><input id="quote" type="number" min="0" inputmode="numeric" value="0"></div>
           <div class="field ${canSeeMoney ? "" : "hidden"}"><label for="cost">預估成本</label><input id="cost" type="number" min="0" inputmode="numeric" value="0"></div>
           ${renderSplitEditor()}
@@ -1362,7 +1371,7 @@
         const firstSplitEmployee = document.querySelector("[data-split-employee]");
         if (firstSplitEmployee && !firstSplitEmployee.value) firstSplitEmployee.value = event.target.value;
       });
-      setupRentalControls();
+      setupHourlyControls();
     }
 
     async function createCase(event) {
@@ -1386,9 +1395,9 @@
         due: document.querySelector("#due").value,
         quote: state.user.isBoss ? Number(document.querySelector("#quote").value || 0) : 0,
         cost: state.user.isBoss ? Number(document.querySelector("#cost").value || 0) : 0,
-        rentalHours: type === "錄音室租借" ? Number(document.querySelector("#rentalHours").value || 0) : 0,
-        rentalHourlyRate: type === "錄音室租借" ? Number(document.querySelector("#rentalHourlyRate").value || 0) : 0,
-        rentalPricingNote: type === "錄音室租借" ? document.querySelector("#rentalPricingPreset").selectedOptions[0].textContent : "",
+        rentalHours: isHourlyCase(type) ? Number(document.querySelector("#hourlyHours").value || 0) : 0,
+        rentalHourlyRate: isHourlyCase(type) ? Number(document.querySelector("#hourlyRate").value || 0) : 0,
+        rentalPricingNote: isHourlyCase(type) ? document.querySelector("#hourlyPricingPreset").selectedOptions[0].textContent : "",
         status: document.querySelector("#status").value,
         role: state.user.isBoss ? "owner" : "staff",
         notes: document.querySelector("#notes").value.trim(),
@@ -1706,7 +1715,7 @@
             <div class="split"><h3>${esc(item.name)}</h3><span class="badge status-${esc(item.status)}">${esc(item.status)}</span></div>
             <p class="small">${esc(item.id)} · ${esc(item.client)} · ${esc(item.owner)}</p>
             <p class="small">${esc(deliveryText(item))}</p>
-            ${item.type === "錄音室租借" ? `<p class="small">租借：${Number(item.rentalHours || 0)} 小時 · ${money(item.rentalHourlyRate || 0)} / 小時 · ${esc(item.rentalPricingNote || "自訂價格")}</p>` : ""}
+            ${isHourlyCase(item.type) ? `<p class="small">${esc(item.type)}：${Number(item.rentalHours || 0)} 小時 · ${money(item.rentalHourlyRate || 0)} / 小時 · ${esc(item.rentalPricingNote || "自訂價格")}</p>` : ""}
             <div class="split"><span>報價</span><strong>${money(item.quote)}</strong></div>
             <div class="split"><span>預估成本</span><strong>${money(item.cost)}</strong></div>
             <div class="split"><span>分潤支出</span><strong>${money(caseSplitTotal(item))}</strong></div>
@@ -1772,15 +1781,15 @@
     }
 
     function renderRentalSummary(item) {
-      if (item.type !== "錄音室租借") return "";
+      if (!isHourlyCase(item.type)) return "";
       const hours = Number(item.rentalHours || 0);
       const rate = Number(item.rentalHourlyRate || 0);
       return `
         <div class="delivery-band">
-          <div class="split"><h3>租借資訊</h3><span class="small">${esc(item.rentalPricingNote || "自訂價格")}</span></div>
-          <div class="split"><span>租借時數</span><strong>${hours}</strong></div>
+          <div class="split"><h3>${item.type === "錄音" ? "錄音時數" : "租借資訊"}</h3><span class="small">${esc(item.rentalPricingNote || "自訂價格")}</span></div>
+          <div class="split"><span>時數</span><strong>${hours}</strong></div>
           <div class="split"><span>每小時金額</span><strong>${money(rate)}</strong></div>
-          <div class="split"><span>租借小計</span><strong>${money(hours * rate)}</strong></div>
+          <div class="split"><span>小計</span><strong>${money(hours * rate)}</strong></div>
         </div>
       `;
     }
