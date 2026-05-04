@@ -13,6 +13,7 @@
 - Review guidance appears only when the case enters review or revision status
 - Owner-only finance view
 - Owner-only payment schedules for deposits, final payments, installments, cash, transfer, and overdue tracking
+- Quick installment generator for common multi-payment contracts
 - Owner-only admin records for company status and petty cash
 - Owner-created employee email accounts with hashed passwords
 - Owner can reset employee temporary passwords
