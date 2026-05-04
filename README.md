@@ -6,6 +6,7 @@
 
 - Account-based login for owner and staff views
 - Case management with status filters and checklist progress
+- Studio rental service with hourly pricing presets and custom rates
 - Owner can edit case notes after creation
 - Owner can correct the primary person responsible for a case after creation
 - Review guidance appears only when the case enters review or revision status
