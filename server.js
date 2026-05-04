@@ -27,6 +27,8 @@ const caseTypes = {
 const statuses = new Set(["新接案", "製作中", "待驗收", "需修改", "已完成", "暫緩"]);
 const recordKinds = new Set(["公司狀態", "零用金"]);
 const paymentStatuses = new Set(["未支出", "已支出"]);
+const receivableStatuses = new Set(["未收", "已收"]);
+const paymentMethods = new Set(["現金", "轉帳", "Line Pay", "其他"]);
 const workTypes = new Set(Object.keys(caseTypes));
 
 app.use(express.json({ limit: "6mb" }));
@@ -126,6 +128,22 @@ async function initDb() {
       purchased_at DATE NOT NULL,
       receipt_image TEXT NOT NULL DEFAULT '',
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS studio_payment_schedules (
+      id SERIAL PRIMARY KEY,
+      case_id TEXT NOT NULL REFERENCES studio_cases(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      due_date DATE NOT NULL,
+      amount INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT '未收',
+      paid_date DATE,
+      method TEXT NOT NULL DEFAULT '現金',
+      notes TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
 
@@ -271,6 +289,30 @@ function toExpenseClaim(row) {
     receiptImage: row.receipt_image || "",
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at
   };
+}
+
+function toPaymentSchedule(row) {
+  return {
+    id: row.id,
+    caseId: row.case_id,
+    title: row.title,
+    dueDate: row.due_date instanceof Date ? row.due_date.toISOString().slice(0, 10) : row.due_date,
+    amount: Number(row.amount || 0),
+    status: row.status || "未收",
+    paidDate: row.paid_date instanceof Date ? row.paid_date.toISOString().slice(0, 10) : row.paid_date,
+    method: row.method || "現金",
+    notes: row.notes || "",
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at
+  };
+}
+
+async function requireBoss(userId, res, message = "只有老闆可以操作") {
+  const requester = await pool.query("SELECT is_boss FROM studio_users WHERE id = $1", [Number(userId)]);
+  if (!requester.rows[0]?.is_boss) {
+    res.status(403).json({ error: message });
+    return false;
+  }
+  return true;
 }
 
 async function nextCaseId() {
@@ -564,6 +606,86 @@ app.post("/api/expense-claims", async (req, res, next) => {
       [requesterId, requester.rows[0].display_name, itemName, purchaseDate, receiptImage]
     );
     res.status(201).json(toExpenseClaim(rows[0]));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/payment-schedules", async (req, res, next) => {
+  try {
+    if (!(await requireBoss(req.query.requesterId, res, "只有老闆可以讀取收款排程"))) return;
+    const { rows } = await pool.query("SELECT * FROM studio_payment_schedules ORDER BY due_date ASC, id ASC");
+    res.json(rows.map(toPaymentSchedule));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/payment-schedules", async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    if (!(await requireBoss(body.requesterId, res, "只有老闆可以新增收款排程"))) return;
+    const title = cleanText(body.title);
+    const caseId = cleanText(body.caseId);
+    const dueDate = cleanText(body.dueDate);
+    if (!caseId || !title || !dueDate) {
+      res.status(400).json({ error: "請填寫案件、款項名稱和應收日期" });
+      return;
+    }
+
+    const status = receivableStatuses.has(body.status) ? body.status : "未收";
+    const method = paymentMethods.has(body.method) ? body.method : "現金";
+    const paidDate = status === "已收" ? (cleanText(body.paidDate) || dueDate) : null;
+    const { rows } = await pool.query(
+      `INSERT INTO studio_payment_schedules
+        (case_id, title, due_date, amount, status, paid_date, method, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [caseId, title, dueDate, Math.round(cleanNumber(body.amount)), status, paidDate, method, cleanText(body.notes)]
+    );
+    res.status(201).json(toPaymentSchedule(rows[0]));
+  } catch (error) {
+    if (error.code === "23503") {
+      res.status(404).json({ error: "找不到對應案件" });
+      return;
+    }
+    next(error);
+  }
+});
+
+app.patch("/api/payment-schedules/:id", async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    if (!(await requireBoss(body.requesterId, res, "只有老闆可以更新收款排程"))) return;
+    const status = receivableStatuses.has(body.status) ? body.status : "未收";
+    const method = paymentMethods.has(body.method) ? body.method : "現金";
+    const paidDate = status === "已收" ? (cleanText(body.paidDate) || new Date().toISOString().slice(0, 10)) : null;
+    const { rows } = await pool.query(
+      `UPDATE studio_payment_schedules
+       SET status = $1,
+           paid_date = $2,
+           method = $3,
+           notes = $4,
+           updated_at = now()
+       WHERE id = $5
+       RETURNING *`,
+      [status, paidDate, method, cleanText(body.notes), req.params.id]
+    );
+    if (!rows[0]) {
+      res.status(404).json({ error: "找不到收款排程" });
+      return;
+    }
+    res.json(toPaymentSchedule(rows[0]));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/payment-schedules/:id", async (req, res, next) => {
+  try {
+    if (!(await requireBoss(req.body?.requesterId, res, "只有老闆可以刪除收款排程"))) return;
+    await pool.query("DELETE FROM studio_payment_schedules WHERE id = $1", [req.params.id]);
+    res.status(204).end();
   } catch (error) {
     next(error);
   }
