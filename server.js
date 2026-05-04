@@ -52,6 +52,7 @@ async function initDb() {
       cost INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT '新接案',
       notes TEXT NOT NULL DEFAULT '',
+      splits JSONB NOT NULL DEFAULT '[]'::jsonb,
       checklist JSONB NOT NULL DEFAULT '[]'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -65,6 +66,7 @@ async function initDb() {
       ADD COLUMN IF NOT EXISTS delivery_url TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS delivery_notes TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS review_notes TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS splits JSONB NOT NULL DEFAULT '[]'::jsonb,
       ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ;
   `);
 
@@ -95,6 +97,7 @@ async function initDb() {
       password_hash TEXT NOT NULL,
       password_salt TEXT NOT NULL,
       work_types JSONB NOT NULL DEFAULT '[]'::jsonb,
+      base_salary INTEGER NOT NULL DEFAULT 0,
       is_boss BOOLEAN NOT NULL DEFAULT false,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -115,7 +118,8 @@ async function initDb() {
 
   await pool.query(`
     ALTER TABLE studio_users
-      ADD COLUMN IF NOT EXISTS work_types JSONB NOT NULL DEFAULT '[]'::jsonb;
+      ADD COLUMN IF NOT EXISTS work_types JSONB NOT NULL DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS base_salary INTEGER NOT NULL DEFAULT 0;
   `);
 
   const { rows } = await pool.query("SELECT COUNT(*)::int AS count FROM studio_users");
@@ -142,6 +146,7 @@ function toCase(row) {
     cost: Number(row.cost || 0),
     status: row.status,
     notes: row.notes || "",
+    splits: Array.isArray(row.splits) ? row.splits : [],
     checklist: Array.isArray(row.checklist) ? row.checklist : [],
     driveFolderUrl: row.drive_folder_url || "",
     sourceMaterialUrl: row.source_material_url || "",
@@ -154,6 +159,32 @@ function toCase(row) {
 
 function cleanText(value) {
   return String(value || "").trim();
+}
+
+function cleanNumber(value) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) ? Math.max(0, number) : 0;
+}
+
+function normalizedSplits(rawSplits, quote) {
+  if (!Array.isArray(rawSplits)) return [];
+  return rawSplits
+    .map(split => {
+      const employee = cleanText(split?.employee);
+      const workType = cleanText(split?.workType);
+      const method = split?.method === "百分比" ? "百分比" : "固定金額";
+      const value = cleanNumber(split?.value);
+      const amount = method === "百分比" ? Math.round(cleanNumber(quote) * value / 100) : Math.round(value);
+      return {
+        employee,
+        workType,
+        method,
+        value,
+        amount,
+        note: cleanText(split?.note)
+      };
+    })
+    .filter(split => split.employee && split.workType && split.value > 0);
 }
 
 function cleanUrl(value) {
@@ -205,7 +236,8 @@ function toUser(row) {
     employee: row.is_boss ? "" : row.display_name,
     icon: row.is_boss ? "👑" : "👤",
     isBoss: Boolean(row.is_boss),
-    workTypes: Array.isArray(row.work_types) ? row.work_types : []
+    workTypes: Array.isArray(row.work_types) ? row.work_types : [],
+    baseSalary: Number(row.base_salary || 0)
   };
 }
 
@@ -349,6 +381,40 @@ app.patch("/api/users/:id/work-types", async (req, res, next) => {
     );
     if (!rows[0]) {
       res.status(404).json({ error: "找不到使用者" });
+      return;
+    }
+    res.json(toUser(rows[0]));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/users/:id/base-salary", async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const requesterId = Number(body.requesterId);
+    const targetId = Number(req.params.id);
+    if (!targetId || !requesterId) {
+      res.status(400).json({ error: "缺少使用者資訊" });
+      return;
+    }
+
+    const requester = await pool.query("SELECT * FROM studio_users WHERE id = $1", [requesterId]);
+    if (!requester.rows[0]?.is_boss) {
+      res.status(403).json({ error: "只有老闆可以更新固定月薪" });
+      return;
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE studio_users
+       SET base_salary = $1,
+           updated_at = now()
+       WHERE id = $2 AND is_boss = false
+       RETURNING *`,
+      [Math.round(cleanNumber(body.baseSalary)), targetId]
+    );
+    if (!rows[0]) {
+      res.status(404).json({ error: "找不到員工" });
       return;
     }
     res.json(toUser(rows[0]));
@@ -523,12 +589,15 @@ app.post("/api/cases", async (req, res, next) => {
       return;
     }
 
+    const quote = cleanNumber(body.quote);
+    const cost = cleanNumber(body.cost);
+    const splits = normalizedSplits(body.splits, quote);
     const id = await nextCaseId();
     const checklist = caseTypes[body.type].map(() => false);
     const { rows } = await pool.query(
       `INSERT INTO studio_cases
-        (id, name, type, client, owner, start_date, due_date, quote, cost, status, notes, checklist, drive_folder_url, source_material_url)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14)
+        (id, name, type, client, owner, start_date, due_date, quote, cost, status, notes, checklist, drive_folder_url, source_material_url, splits)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14, $15::jsonb)
        RETURNING *`,
       [
         id,
@@ -538,13 +607,14 @@ app.post("/api/cases", async (req, res, next) => {
         body.owner,
         body.start,
         body.due,
-        Number(body.quote || 0),
-        Number(body.cost || 0),
+        quote,
+        cost,
         body.status || "新接案",
         cleanText(body.notes),
         JSON.stringify(checklist),
         cleanUrl(body.driveFolderUrl),
-        cleanUrl(body.sourceMaterialUrl)
+        cleanUrl(body.sourceMaterialUrl),
+        JSON.stringify(splits)
       ]
     );
     res.status(201).json(toCase(rows[0]));
