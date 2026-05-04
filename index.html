@@ -1823,6 +1823,21 @@
         <div class="money-band">
           <div class="split"><h3>收款排程</h3><strong>${money(summary.paid)} / ${money(summary.totalDue || item.quote)}</strong></div>
           <form id="paymentScheduleForm" class="delivery-form" data-payment-case="${esc(item.id)}">
+            <div class="split"><h3>快速建立分期</h3><span class="small">例：今天收 2000，6/11、7/11 再各收 2000</span></div>
+            <div class="grid metrics">
+              <div class="field"><label for="quickInstallmentAmount">每期金額</label><input id="quickInstallmentAmount" type="number" min="0" inputmode="numeric" value="${Math.round(Number(item.quote || 0) / 3) || ""}"></div>
+              <div class="field"><label for="quickMethod">收款方式</label><select id="quickMethod"><option>現金</option><option>轉帳</option><option>Line Pay</option><option>其他</option></select></div>
+            </div>
+            <div class="grid metrics">
+              <div class="field"><label for="quickFirstDate">第一期日期</label><input id="quickFirstDate" type="date" value="${new Date().toISOString().slice(0, 10)}"></div>
+              <div class="field"><label for="quickFirstStatus">第一期狀態</label><select id="quickFirstStatus"><option>已收</option><option>未收</option></select></div>
+            </div>
+            <div class="grid metrics">
+              <div class="field"><label for="quickSecondDate">第二期日期</label><input id="quickSecondDate" type="date"></div>
+              <div class="field"><label for="quickThirdDate">第三期日期</label><input id="quickThirdDate" type="date"></div>
+            </div>
+            <button class="ghost" type="button" data-create-installments="${esc(item.id)}">快速產生分期</button>
+            <div class="split"><h3>單筆新增</h3></div>
             <div class="grid metrics">
               <div class="field"><label for="paymentTitle">款項名稱</label><input id="paymentTitle" required placeholder="訂金、尾款、第一期"></div>
               <div class="field"><label for="paymentDueDate">應收日期</label><input id="paymentDueDate" type="date" required></div>
@@ -2058,6 +2073,44 @@
       openCase(caseId);
     }
 
+    async function createInstallmentSchedules(caseId) {
+      const amount = Number(document.querySelector("#quickInstallmentAmount").value || 0);
+      const dates = [
+        document.querySelector("#quickFirstDate").value,
+        document.querySelector("#quickSecondDate").value,
+        document.querySelector("#quickThirdDate").value
+      ].filter(Boolean);
+      const firstStatus = document.querySelector("#quickFirstStatus").value;
+      const method = document.querySelector("#quickMethod").value;
+      if (!amount || !dates.length) {
+        alert("請填每期金額，並至少選一個日期。");
+        return;
+      }
+      const created = [];
+      for (let index = 0; index < dates.length; index += 1) {
+        const dueDate = dates[index];
+        const status = index === 0 ? firstStatus : "未收";
+        const payment = await api("/api/payment-schedules", {
+          method: "POST",
+          body: JSON.stringify({
+            requesterId: state.user.id,
+            caseId,
+            title: `第 ${index + 1} 期`,
+            dueDate,
+            amount,
+            status,
+            paidDate: status === "已收" ? dueDate : "",
+            method,
+            notes: index === 0 && status === "已收" ? "第一期已收" : ""
+          })
+        });
+        created.push(payment);
+      }
+      state.payments.push(...created);
+      renderApp();
+      openCase(caseId);
+    }
+
     async function togglePaymentSchedule(id, status) {
       const existing = state.payments.find(payment => String(payment.id) === String(id));
       const payment = await api(`/api/payment-schedules/${id}`, {
@@ -2130,6 +2183,11 @@
       const deletePaymentBtn = event.target.closest("[data-delete-payment]");
       if (deletePaymentBtn && confirm("這會刪除此筆收款排程，確定刪除？")) {
         deletePaymentSchedule(deletePaymentBtn.dataset.deletePayment).catch(error => alert(error.message));
+      }
+
+      const installmentBtn = event.target.closest("[data-create-installments]");
+      if (installmentBtn) {
+        createInstallmentSchedules(installmentBtn.dataset.createInstallments).catch(error => alert(error.message));
       }
     });
 
