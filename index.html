@@ -798,6 +798,10 @@
       }
     }
 
+    function cleanKey(value) {
+      return String(value || "").trim().toLowerCase();
+    }
+
     function linkButton(label, url) {
       const safe = safeUrl(url);
       if (!safe) return `<div class="link-button empty"><span>${esc(label)}</span><span>未設定</span></div>`;
@@ -821,13 +825,13 @@
 
     function aliasesForCurrentUser() {
       if (!state.user) return [];
-      return [state.user.employee, state.user.label, state.user.email, state.user.role].filter(Boolean);
+      return [state.user.employee, state.user.label, state.user.email, state.user.role].map(cleanKey).filter(Boolean);
     }
 
     function splitRowsForUser(item) {
       if (state.user?.isBoss) return item.splits || [];
       const aliases = aliasesForCurrentUser();
-      return (item.splits || []).filter(split => aliases.includes(split.employee));
+      return (item.splits || []).filter(split => aliases.includes(cleanKey(split.employee)));
     }
 
     function splitMethodLabel(split) {
@@ -856,7 +860,7 @@
       renderApp();
       try {
         const [cases, records, expenses] = await Promise.all([
-          api("/api/cases"),
+          api(`/api/cases?requesterId=${state.user.id}`),
           state.user.isBoss ? api("/api/company-records") : Promise.resolve([]),
           api(`/api/expense-claims?requesterId=${state.user.id}`)
         ]);
@@ -881,8 +885,8 @@
       if (state.user.isBoss) return state.cases;
       const aliases = aliasesForCurrentUser();
       return state.cases.filter(item =>
-        aliases.includes(item.owner) ||
-        (item.splits || []).some(split => aliases.includes(split.employee))
+        aliases.includes(cleanKey(item.owner)) ||
+        (item.splits || []).some(split => aliases.includes(cleanKey(split.employee)))
       );
     }
 
@@ -1011,15 +1015,15 @@
 
     function payrollFor(name) {
       const employee = employeeList().find(item => item.name === name);
-      const aliases = [name, employee?.email, employee?.label, employee?.role].filter(Boolean);
+      const aliases = [name, employee?.email, employee?.label, employee?.role].map(cleanKey).filter(Boolean);
       const doneCases = state.cases.filter(item =>
         item.status === "已完成" &&
-        ((item.splits || []).some(split => aliases.includes(split.employee)) || aliases.includes(item.owner))
+        ((item.splits || []).some(split => aliases.includes(cleanKey(split.employee))) || aliases.includes(cleanKey(item.owner)))
       );
       const revenue = doneCases.reduce((sum, item) => sum + Number(item.quote || 0), 0);
       const splitPay = doneCases.reduce((sum, item) => {
         return sum + (item.splits || [])
-          .filter(split => aliases.includes(split.employee))
+          .filter(split => aliases.includes(cleanKey(split.employee)))
           .reduce((splitSum, split) => splitSum + splitAmount(split, item.quote), 0);
       }, 0);
       return {
@@ -1027,7 +1031,7 @@
         bonus: splitPay,
         total: (employee?.base || 0) + splitPay,
         cases: state.cases.filter(item =>
-          aliases.includes(item.owner) || (item.splits || []).some(split => aliases.includes(split.employee))
+          aliases.includes(cleanKey(item.owner)) || (item.splits || []).some(split => aliases.includes(cleanKey(split.employee)))
         ).length,
         revenue
       };
@@ -1237,6 +1241,14 @@
       `;
     }
 
+    function employeeOptions(selected = "", includePlaceholder = false) {
+      const employees = employeeList();
+      const placeholder = includePlaceholder ? `<option value="">請選擇負責員工</option>` : "";
+      return employees.length
+        ? `${placeholder}${employees.map(employee => `<option value="${esc(employee.name)}" ${employee.name === selected ? "selected" : ""}>${esc(employee.label)}${employee.workTypes.length ? ` · ${esc(employee.workTypes.join(" / "))}` : " · 未設定本月工作"}</option>`).join("")}`
+        : `<option value="">請先在行政頁建立員工帳號</option>`;
+    }
+
     function renderNewCase() {
       if (!state.user.isBoss) {
         state.page = "home";
@@ -1249,7 +1261,7 @@
           <div class="field"><label for="caseName">案件名稱</label><input id="caseName" required placeholder="案件名稱"></div>
           <div class="field"><label for="caseType">案件種類</label><select id="caseType">${Object.keys(caseTypes).map(type => `<option>${type}</option>`).join("")}</select></div>
           <div class="field"><label for="client">客戶名稱</label><input id="client" required placeholder="客戶或品牌名稱"></div>
-          <div class="field"><label for="owner">負責人</label><select id="owner" required>${employeeList().length ? employeeList().map(employee => `<option value="${esc(employee.name)}">${esc(employee.label)}${employee.workTypes.length ? ` · ${esc(employee.workTypes.join(" / "))}` : " · 未設定本月工作"}</option>`).join("") : `<option value="">請先在行政頁建立員工帳號</option>`}</select></div>
+          <div class="field"><label for="owner">主要負責人</label><select id="owner" required>${employeeOptions("", true)}</select></div>
           <div class="grid metrics">
             <div class="field"><label for="start">開始日期</label><input id="start" type="date" required></div>
             <div class="field"><label for="due">截止日期</label><input id="due" type="date" required></div>
@@ -1265,6 +1277,10 @@
         </form>
       `;
       document.querySelector("#start").value = new Date().toISOString().slice(0, 10);
+      document.querySelector("#owner").addEventListener("change", event => {
+        const firstSplitEmployee = document.querySelector("[data-split-employee]");
+        if (firstSplitEmployee && !firstSplitEmployee.value) firstSplitEmployee.value = event.target.value;
+      });
     }
 
     async function createCase(event) {
@@ -1686,6 +1702,13 @@
           <div class="detail-item"><span class="small">開始日期</span><strong>${esc(item.start)}</strong></div>
           <div class="detail-item"><span class="small">截止日期</span><strong>${esc(item.due)}</strong></div>
         </div>
+        <form id="caseOwnerForm" class="${canSeeMoney ? "delivery-form" : "hidden"}" data-owner-for="${esc(item.id)}">
+          <div class="field">
+            <label for="modalCaseOwner">主要負責人</label>
+            <select id="modalCaseOwner" required>${employeeOptions(item.owner, false)}</select>
+          </div>
+          <button class="ghost" type="submit">更新負責人</button>
+        </form>
         <div class="field">
           <label for="modalStatus">案件狀態</label>
           <select id="modalStatus" data-status-for="${item.id}">
@@ -1802,6 +1825,21 @@
       openCase(id);
     }
 
+    async function updateCaseOwner(event) {
+      event.preventDefault();
+      const id = event.target.dataset.ownerFor;
+      const item = await api(`/api/cases/${id}/owner`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          role: state.user.isBoss ? "owner" : "staff",
+          owner: document.querySelector("#modalCaseOwner").value
+        })
+      });
+      state.cases = state.cases.map(entry => entry.id === id ? item : entry);
+      renderApp();
+      openCase(id);
+    }
+
     async function updateDelivery(event) {
       event.preventDefault();
       const id = event.target.dataset.deliveryFor;
@@ -1882,6 +1920,7 @@
       if (event.target.id === "expenseForm") createExpense(event).catch(error => alert(error.message));
       if (event.target.id === "reviewForm") updateReview(event).catch(error => alert(error.message));
       if (event.target.id === "caseNotesForm") updateCaseNotes(event).catch(error => alert(error.message));
+      if (event.target.id === "caseOwnerForm") updateCaseOwner(event).catch(error => alert(error.message));
       if (event.target.id === "deliveryForm") updateDelivery(event).catch(error => alert(error.message));
     });
 
