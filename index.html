@@ -509,6 +509,36 @@
       gap: 8px;
     }
 
+    .split-editor {
+      border: 1px solid rgba(255, 255, 255, .08);
+      background: rgba(255, 255, 255, .03);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .split-row-form {
+      display: grid;
+      gap: 10px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .split-row-form:last-child {
+      padding-bottom: 0;
+      border-bottom: 0;
+    }
+
+    .split-row-form .field {
+      margin-bottom: 0;
+    }
+
+    .split-note {
+      grid-column: 1 / -1;
+    }
+
     .delivery-band {
       border: 1px solid rgba(85, 200, 232, .28);
       background: rgba(85, 200, 232, .08);
@@ -759,6 +789,36 @@
       return `<a class="link-button" href="${esc(safe)}" target="_blank" rel="noopener noreferrer"><span>${esc(label)}</span><span>開啟</span></a>`;
     }
 
+    function splitAmount(split, quote) {
+      if (Number.isFinite(Number(split?.amount))) return Number(split.amount || 0);
+      const value = Number(split?.value || 0);
+      if (split?.method === "百分比") return Math.round(Number(quote || 0) * value / 100);
+      return Math.round(value);
+    }
+
+    function caseSplitTotal(item) {
+      return (item.splits || []).reduce((sum, split) => sum + splitAmount(split, item.quote), 0);
+    }
+
+    function caseProfit(item) {
+      return Number(item.quote || 0) - Number(item.cost || 0) - caseSplitTotal(item);
+    }
+
+    function aliasesForCurrentUser() {
+      if (!state.user) return [];
+      return [state.user.employee, state.user.label, state.user.email, state.user.role].filter(Boolean);
+    }
+
+    function splitRowsForUser(item) {
+      if (state.user?.isBoss) return item.splits || [];
+      const aliases = aliasesForCurrentUser();
+      return (item.splits || []).filter(split => aliases.includes(split.employee));
+    }
+
+    function splitMethodLabel(split) {
+      return split.method === "百分比" ? `${Number(split.value || 0)}%` : money(split.value);
+    }
+
     async function api(path, options = {}) {
       const response = await fetch(path, {
         headers: { "Content-Type": "application/json", ...(options.headers || {}) },
@@ -804,8 +864,11 @@
     function visibleCases() {
       if (!state.user) return [];
       if (state.user.isBoss) return state.cases;
-      const aliases = [state.user.employee, state.user.label, state.user.email, state.user.role].filter(Boolean);
-      return state.cases.filter(item => aliases.includes(item.owner));
+      const aliases = aliasesForCurrentUser();
+      return state.cases.filter(item =>
+        aliases.includes(item.owner) ||
+        (item.splits || []).some(split => aliases.includes(split.employee))
+      );
     }
 
     function progressOf(item) {
@@ -933,14 +996,24 @@
 
     function payrollFor(name) {
       const employee = employeeList().find(item => item.name === name);
-      const doneCases = state.cases.filter(item => item.owner === name && item.status === "已完成");
+      const aliases = [name, employee?.email, employee?.label, employee?.role].filter(Boolean);
+      const doneCases = state.cases.filter(item =>
+        item.status === "已完成" &&
+        ((item.splits || []).some(split => aliases.includes(split.employee)) || aliases.includes(item.owner))
+      );
       const revenue = doneCases.reduce((sum, item) => sum + Number(item.quote || 0), 0);
-      const bonus = Math.round(revenue * (employee?.bonusRate || 0));
+      const splitPay = doneCases.reduce((sum, item) => {
+        return sum + (item.splits || [])
+          .filter(split => aliases.includes(split.employee))
+          .reduce((splitSum, split) => splitSum + splitAmount(split, item.quote), 0);
+      }, 0);
       return {
         base: employee?.base || 0,
-        bonus,
-        total: (employee?.base || 0) + bonus,
-        cases: state.cases.filter(item => item.owner === name).length,
+        bonus: splitPay,
+        total: (employee?.base || 0) + splitPay,
+        cases: state.cases.filter(item =>
+          aliases.includes(item.owner) || (item.splits || []).some(split => aliases.includes(split.employee))
+        ).length,
         revenue
       };
     }
@@ -954,7 +1027,7 @@
           label: user.label,
           role: user.role,
           workTypes: user.workTypes || [],
-          base: 0,
+          base: Number(user.baseSalary || 0),
           bonusRate: 0
         }));
     }
@@ -1102,6 +1175,53 @@
       `).join("");
     }
 
+    function renderSplitEditor() {
+      const employees = employeeList();
+      const employeeOptions = employees.length
+        ? `<option value="">選擇員工</option>${employees.map(employee => `<option value="${esc(employee.name)}">${esc(employee.label)}</option>`).join("")}`
+        : `<option value="">請先建立員工</option>`;
+      const workOptions = Object.keys(caseTypes).map(type => `<option value="${esc(type)}">${esc(type)}</option>`).join("");
+      return `
+        <div class="split-editor">
+          <div class="split">
+            <h3>案件分潤設定</h3>
+            <span class="small">可固定金額、比例抽成、多人拆帳</span>
+          </div>
+          ${[0, 1, 2, 3].map(index => `
+            <div class="split-row-form" data-split-row>
+              <div class="grid metrics">
+                <div class="field">
+                  <label for="splitEmployee${index}">員工</label>
+                  <select id="splitEmployee${index}" data-split-employee>${employeeOptions}</select>
+                </div>
+                <div class="field">
+                  <label for="splitWorkType${index}">工作</label>
+                  <select id="splitWorkType${index}" data-split-work-type>${workOptions}</select>
+                </div>
+              </div>
+              <div class="grid metrics">
+                <div class="field">
+                  <label for="splitMethod${index}">方式</label>
+                  <select id="splitMethod${index}" data-split-method>
+                    <option>固定金額</option>
+                    <option>百分比</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="splitValue${index}">金額 / %</label>
+                  <input id="splitValue${index}" data-split-value type="number" min="0" inputmode="numeric" placeholder="例如 3000 或 30">
+                </div>
+              </div>
+              <div class="field split-note">
+                <label for="splitNote${index}">備註</label>
+                <input id="splitNote${index}" data-split-note placeholder="例如：混音包辦、錄音 Session、協作拆分">
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      `;
+    }
+
     function renderNewCase() {
       if (!state.user.isBoss) {
         state.page = "home";
@@ -1122,6 +1242,7 @@
           <div class="field"><label for="status">案件狀態</label><select id="status">${statusOptions("新接案").map(status => `<option>${status}</option>`).join("")}</select></div>
           <div class="field ${canSeeMoney ? "" : "hidden"}"><label for="quote">報價金額</label><input id="quote" type="number" min="0" inputmode="numeric" value="0"></div>
           <div class="field ${canSeeMoney ? "" : "hidden"}"><label for="cost">預估成本</label><input id="cost" type="number" min="0" inputmode="numeric" value="0"></div>
+          ${renderSplitEditor()}
           <div class="field"><label for="driveFolderUrl">Google Drive 工作資料夾</label><input id="driveFolderUrl" type="url" inputmode="url" placeholder="貼上內部工作資料夾連結"></div>
           <div class="field"><label for="sourceMaterialUrl">客戶素材連結</label><input id="sourceMaterialUrl" type="url" inputmode="url" placeholder="貼上客戶上傳素材連結"></div>
           <div class="field"><label for="notes">備註 / 需求說明</label><textarea id="notes" placeholder="客戶需求、參考資料、交付格式"></textarea></div>
@@ -1134,6 +1255,15 @@
     async function createCase(event) {
       event.preventDefault();
       const type = document.querySelector("#caseType").value;
+      const splits = [...document.querySelectorAll("[data-split-row]")]
+        .map(row => ({
+          employee: row.querySelector("[data-split-employee]").value,
+          workType: row.querySelector("[data-split-work-type]").value,
+          method: row.querySelector("[data-split-method]").value,
+          value: Number(row.querySelector("[data-split-value]").value || 0),
+          note: row.querySelector("[data-split-note]").value.trim()
+        }))
+        .filter(split => split.employee && split.value > 0);
       const payload = {
         name: document.querySelector("#caseName").value.trim(),
         type,
@@ -1147,7 +1277,8 @@
         role: state.user.isBoss ? "owner" : "staff",
         notes: document.querySelector("#notes").value.trim(),
         driveFolderUrl: document.querySelector("#driveFolderUrl").value.trim(),
-        sourceMaterialUrl: document.querySelector("#sourceMaterialUrl").value.trim()
+        sourceMaterialUrl: document.querySelector("#sourceMaterialUrl").value.trim(),
+        splits
       };
       const item = await api("/api/cases", { method: "POST", body: JSON.stringify(payload) });
       state.cases.unshift(item);
@@ -1263,9 +1394,14 @@
           <div>
             <h3>${esc(user.label)}</h3>
             <p class="small">${esc(user.email)} · ${user.isBoss ? "老闆" : esc((user.workTypes || []).join(" / ") || "本月工作未設定")}</p>
+            ${user.isBoss ? "" : `<p class="small">固定月薪 ${money(user.baseSalary || 0)}</p>`}
           </div>
           <strong>${user.isBoss ? "老闆" : "員工"}</strong>
           ${user.isBoss ? "" : `
+            <form class="delivery-form" data-base-salary-for="${user.id}">
+              <div class="field"><label>固定月薪</label><input type="number" name="baseSalary" min="0" inputmode="numeric" value="${Number(user.baseSalary || 0)}"></div>
+              <button class="ghost" type="submit">更新月薪</button>
+            </form>
             <form class="delivery-form" data-reset-password-for="${user.id}">
               <div class="field"><label>新臨時密碼</label><input type="text" name="temporaryPassword" autocomplete="off" autocapitalize="off" spellcheck="false" minlength="6" required placeholder="至少 6 碼"></div>
               <button class="ghost" type="submit">重設密碼</button>
@@ -1317,6 +1453,21 @@
       });
       alert("員工密碼已重設。");
       form.reset();
+    }
+
+    async function updateEmployeeBaseSalary(event) {
+      event.preventDefault();
+      const form = event.target;
+      const employeeId = form.dataset.baseSalaryFor;
+      const user = await api(`/api/users/${employeeId}/base-salary`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          requesterId: state.user.id,
+          baseSalary: Number(form.querySelector("[name='baseSalary']").value || 0)
+        })
+      });
+      state.users = state.users.map(item => item.id === user.id ? user : item);
+      renderApp();
     }
 
     async function updateWorkTypes(event) {
@@ -1441,16 +1592,32 @@
             <p class="small">${esc(deliveryText(item))}</p>
             <div class="split"><span>報價</span><strong>${money(item.quote)}</strong></div>
             <div class="split"><span>預估成本</span><strong>${money(item.cost)}</strong></div>
-            <div class="split"><span>預估利潤</span><strong>${money(item.quote - item.cost)}</strong></div>
+            <div class="split"><span>分潤支出</span><strong>${money(caseSplitTotal(item))}</strong></div>
+            <div class="split"><span>預估利潤</span><strong>${money(caseProfit(item))}</strong></div>
+            ${(item.splits || []).length ? `<p class="small">拆帳：${item.splits.map(split => `${esc(split.employee)} ${esc(split.workType)} ${esc(splitMethodLabel(split))}`).join(" · ")}</p>` : `<p class="small">尚未設定拆帳</p>`}
           </div>`).join("") : emptyPanel()}
         </div>
       `;
+    }
+
+    function renderSplitSummary(item) {
+      const rows = splitRowsForUser(item);
+      if (!rows.length && !state.user.isBoss) return "";
+      if (!rows.length) return `<p class="small">尚未設定案件分潤。</p>`;
+      return rows.map(split => `
+        <div class="split">
+          <span>${esc(split.employee)} · ${esc(split.workType)} · ${esc(split.method)}</span>
+          <strong>${money(splitAmount(split, item.quote))}</strong>
+        </div>
+        ${split.note ? `<p class="small">${esc(split.note)}</p>` : ""}
+      `).join("");
     }
 
     function openCase(id) {
       const item = state.cases.find(entry => entry.id === id);
       if (!item) return;
       const canSeeMoney = state.user.isBoss;
+      const ownSplits = splitRowsForUser(item);
       const driveFolderUrl = safeUrl(item.driveFolderUrl);
       const sourceMaterialUrl = safeUrl(item.sourceMaterialUrl);
       const deliveryUrl = safeUrl(item.deliveryUrl);
@@ -1513,7 +1680,14 @@
         <div class="${canSeeMoney ? "money-band" : "hidden"}">
           <div class="split"><span>報價金額</span><strong>${money(item.quote)}</strong></div>
           <div class="split"><span>預估成本</span><strong>${money(item.cost)}</strong></div>
-          <div class="split"><span>預估利潤</span><strong>${money(item.quote - item.cost)}</strong></div>
+          <div class="split"><span>分潤支出</span><strong>${money(caseSplitTotal(item))}</strong></div>
+          <div class="split"><span>預估利潤</span><strong>${money(caseProfit(item))}</strong></div>
+          <div class="section-title"><h3>拆帳明細</h3></div>
+          ${renderSplitSummary(item)}
+        </div>
+        <div class="${!canSeeMoney && ownSplits.length ? "money-band" : "hidden"}">
+          <div class="split"><h3>我的分潤</h3><strong>${money(ownSplits.reduce((sum, split) => sum + splitAmount(split, item.quote), 0))}</strong></div>
+          ${renderSplitSummary(item)}
         </div>
         <div class="section-title"><h3>備註 / 需求</h3></div>
         <p class="muted">${esc(item.notes || "無備註")}</p>
@@ -1636,6 +1810,7 @@
       if (event.target.id === "caseForm") createCase(event).catch(error => alert(error.message));
       if (event.target.id === "companyRecordForm") createCompanyRecord(event).catch(error => alert(error.message));
       if (event.target.id === "userForm") createUser(event).catch(error => alert(error.message));
+      if (event.target.matches("[data-base-salary-for]")) updateEmployeeBaseSalary(event).catch(error => alert(error.message));
       if (event.target.matches("[data-reset-password-for]")) resetEmployeePassword(event).catch(error => alert(error.message));
       if (event.target.id === "workTypesForm") updateWorkTypes(event).catch(error => alert(error.message));
       if (event.target.id === "passwordForm") updateMyPassword(event).catch(error => alert(error.message));
