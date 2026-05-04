@@ -20,7 +20,8 @@ const caseTypes = {
   "編曲": ["風格確認", "Demo 製作", "客戶試聽", "編曲完稿", "人聲配合", "交件"],
   "母帶": ["素材接收", "聲音分析", "母帶處理", "試聽確認", "最終版本", "交件"],
   "廣告配樂": ["廣告簡報", "風格確認", "初版配樂", "影片對位", "修改", "交件"],
-  "電影配樂": ["劇本分析", "音樂風格會議", "主題曲創作", "配樂錄製", "混音", "交件"]
+  "電影配樂": ["劇本分析", "音樂風格會議", "主題曲創作", "配樂錄製", "混音", "交件"],
+  "錄音室租借": ["時段確認", "設備確認", "進場", "使用完成", "場地復原", "結案"]
 };
 
 const statuses = new Set(["新接案", "製作中", "待驗收", "需修改", "已完成", "暫緩"]);
@@ -56,6 +57,9 @@ async function initDb() {
       due_date DATE NOT NULL,
       quote INTEGER NOT NULL DEFAULT 0,
       cost INTEGER NOT NULL DEFAULT 0,
+      rental_hours NUMERIC NOT NULL DEFAULT 0,
+      rental_hourly_rate INTEGER NOT NULL DEFAULT 0,
+      rental_pricing_note TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT '新接案',
       notes TEXT NOT NULL DEFAULT '',
       splits JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -73,6 +77,9 @@ async function initDb() {
       ADD COLUMN IF NOT EXISTS delivery_notes TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS review_notes TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS splits JSONB NOT NULL DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS rental_hours NUMERIC NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS rental_hourly_rate INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS rental_pricing_note TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ;
   `);
 
@@ -150,6 +157,9 @@ function toCase(row) {
     due: row.due_date instanceof Date ? row.due_date.toISOString().slice(0, 10) : row.due_date,
     quote: Number(row.quote || 0),
     cost: Number(row.cost || 0),
+    rentalHours: Number(row.rental_hours || 0),
+    rentalHourlyRate: Number(row.rental_hourly_rate || 0),
+    rentalPricingNote: row.rental_pricing_note || "",
     status: row.status,
     notes: row.notes || "",
     splits: Array.isArray(row.splits) ? row.splits : [],
@@ -624,13 +634,15 @@ app.post("/api/cases", async (req, res, next) => {
 
     const quote = cleanNumber(body.quote);
     const cost = cleanNumber(body.cost);
+    const rentalHours = cleanNumber(body.rentalHours);
+    const rentalHourlyRate = cleanNumber(body.rentalHourlyRate);
     const splits = normalizedSplits(body.splits, quote);
     const id = await nextCaseId();
     const checklist = caseTypes[body.type].map(() => false);
     const { rows } = await pool.query(
       `INSERT INTO studio_cases
-        (id, name, type, client, owner, start_date, due_date, quote, cost, status, notes, checklist, drive_folder_url, source_material_url, splits)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14, $15::jsonb)
+        (id, name, type, client, owner, start_date, due_date, quote, cost, rental_hours, rental_hourly_rate, rental_pricing_note, status, notes, checklist, drive_folder_url, source_material_url, splits)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16, $17, $18::jsonb)
        RETURNING *`,
       [
         id,
@@ -642,6 +654,9 @@ app.post("/api/cases", async (req, res, next) => {
         body.due,
         quote,
         cost,
+        rentalHours,
+        Math.round(rentalHourlyRate),
+        cleanText(body.rentalPricingNote),
         body.status || "新接案",
         cleanText(body.notes),
         JSON.stringify(checklist),
