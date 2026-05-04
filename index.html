@@ -1811,7 +1811,7 @@
           <div class="detail-item"><span class="small">開始日期</span><strong>${esc(item.start)}</strong></div>
           <div class="detail-item"><span class="small">截止日期</span><strong>${esc(item.due)}</strong></div>
         </div>
-        ${renderRentalSummary(item)}
+        ${canSeeMoney ? renderRentalSummary(item) : ""}
         <form id="caseOwnerForm" class="${canSeeMoney ? "delivery-form" : "hidden"}" data-owner-for="${esc(item.id)}">
           <div class="field">
             <label for="modalCaseOwner">主要負責人</label>
