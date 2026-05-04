@@ -1690,7 +1690,11 @@
           ${renderSplitSummary(item)}
         </div>
         <div class="section-title"><h3>備註 / 需求</h3></div>
-        <p class="muted">${esc(item.notes || "無備註")}</p>
+        <form id="caseNotesForm" class="${canSeeMoney ? "delivery-form" : "hidden"}" data-notes-for="${esc(item.id)}">
+          <div class="field"><label for="modalCaseNotes">案件備註</label><textarea id="modalCaseNotes" placeholder="客戶需求、參考資料、交付格式">${esc(item.notes || "")}</textarea></div>
+          <button class="primary" type="submit">儲存案件備註</button>
+        </form>
+        <p class="${canSeeMoney ? "hidden" : "muted"}">${esc(item.notes || "無備註")}</p>
         <div class="form-actions">
           <button class="ghost" type="button" data-delete="${item.id}">刪除</button>
           <button class="primary" type="button" data-close-modal>完成</button>
@@ -1730,6 +1734,21 @@
         body: JSON.stringify({
           role: state.user.isBoss ? "owner" : "staff",
           reviewNotes: document.querySelector("#modalReviewNotes").value.trim()
+        })
+      });
+      state.cases = state.cases.map(entry => entry.id === id ? item : entry);
+      renderApp();
+      openCase(id);
+    }
+
+    async function updateCaseNotes(event) {
+      event.preventDefault();
+      const id = event.target.dataset.notesFor;
+      const item = await api(`/api/cases/${id}/notes`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          role: state.user.isBoss ? "owner" : "staff",
+          notes: document.querySelector("#modalCaseNotes").value.trim()
         })
       });
       state.cases = state.cases.map(entry => entry.id === id ? item : entry);
@@ -1816,6 +1835,7 @@
       if (event.target.id === "passwordForm") updateMyPassword(event).catch(error => alert(error.message));
       if (event.target.id === "expenseForm") createExpense(event).catch(error => alert(error.message));
       if (event.target.id === "reviewForm") updateReview(event).catch(error => alert(error.message));
+      if (event.target.id === "caseNotesForm") updateCaseNotes(event).catch(error => alert(error.message));
       if (event.target.id === "deliveryForm") updateDelivery(event).catch(error => alert(error.message));
     });
 
