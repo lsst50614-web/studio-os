@@ -12,6 +12,7 @@
 - Owner can reset employee temporary passwords
 - Employees choose their monthly work types after logging in
 - Owner-only case creation and assignment
+- Employee fixed monthly salary plus per-case split settings for fixed pay, percentage commission, and multi-person payouts
 - Staff expense claims with receipt photo upload
 - Petty cash payment status tracking for paid and pending expenses
 - PostgreSQL-backed API for persistent project data
