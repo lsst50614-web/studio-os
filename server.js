@@ -734,7 +734,9 @@ app.patch("/api/cases/:id/notes", async (req, res, next) => {
 
 app.patch("/api/cases/:id/owner", async (req, res, next) => {
   try {
-    if (req.body?.role !== "owner") {
+    const requesterId = Number(req.body?.requesterId);
+    const requester = await pool.query("SELECT is_boss FROM studio_users WHERE id = $1", [requesterId]);
+    if (!requester.rows[0]?.is_boss) {
       res.status(403).json({ error: "只有老闆可以更新案件負責人" });
       return;
     }
