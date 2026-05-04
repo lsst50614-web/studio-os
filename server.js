@@ -29,6 +29,12 @@ const paymentStatuses = new Set(["未支出", "已支出"]);
 const workTypes = new Set(Object.keys(caseTypes));
 
 app.use(express.json({ limit: "6mb" }));
+app.use((req, res, next) => {
+  if (req.path === "/" || req.path.endsWith(".html") || req.path.startsWith("/api/")) {
+    res.set("Cache-Control", "no-store");
+  }
+  next();
+});
 app.use(express.static(__dirname, {
   extensions: ["html"],
   index: "index.html"
@@ -161,6 +167,10 @@ function cleanText(value) {
   return String(value || "").trim();
 }
 
+function cleanKey(value) {
+  return cleanText(value).toLowerCase();
+}
+
 function cleanNumber(value) {
   const number = Number(value || 0);
   return Number.isFinite(number) ? Math.max(0, number) : 0;
@@ -274,7 +284,30 @@ app.get("/api/health", async (_req, res) => {
 app.get("/api/cases", async (_req, res, next) => {
   try {
     const { rows } = await pool.query("SELECT * FROM studio_cases ORDER BY created_at DESC");
-    res.json(rows.map(toCase));
+    const requesterId = Number(_req.query.requesterId);
+    if (!requesterId) {
+      res.json(rows.map(toCase));
+      return;
+    }
+
+    const requester = await pool.query("SELECT * FROM studio_users WHERE id = $1", [requesterId]);
+    const user = requester.rows[0];
+    if (!user) {
+      res.status(403).json({ error: "沒有權限讀取案件" });
+      return;
+    }
+    if (user.is_boss) {
+      res.json(rows.map(toCase));
+      return;
+    }
+
+    const aliases = new Set([user.display_name, user.email, user.role].map(cleanKey).filter(Boolean));
+    res.json(rows
+      .map(toCase)
+      .filter(item =>
+        aliases.has(cleanKey(item.owner)) ||
+        (item.splits || []).some(split => aliases.has(cleanKey(split.employee)))
+      ));
   } catch (error) {
     next(error);
   }
@@ -688,6 +721,36 @@ app.patch("/api/cases/:id/notes", async (req, res, next) => {
        WHERE id = $2
        RETURNING *`,
       [cleanText(req.body?.notes), req.params.id]
+    );
+    if (!rows[0]) {
+      res.status(404).json({ error: "找不到案件" });
+      return;
+    }
+    res.json(toCase(rows[0]));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/cases/:id/owner", async (req, res, next) => {
+  try {
+    if (req.body?.role !== "owner") {
+      res.status(403).json({ error: "只有老闆可以更新案件負責人" });
+      return;
+    }
+    const owner = cleanText(req.body?.owner);
+    if (!owner) {
+      res.status(400).json({ error: "請選擇案件負責人" });
+      return;
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE studio_cases
+       SET owner = $1,
+           updated_at = now()
+       WHERE id = $2
+       RETURNING *`,
+      [owner, req.params.id]
     );
     if (!rows[0]) {
       res.status(404).json({ error: "找不到案件" });
