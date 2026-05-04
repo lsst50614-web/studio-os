@@ -754,6 +754,7 @@
       cases: [],
       records: [],
       expenses: [],
+      payments: [],
       users: [],
       loading: false,
       apiError: ""
@@ -868,20 +869,23 @@
       state.apiError = "";
       renderApp();
       try {
-        const [cases, records, expenses] = await Promise.all([
+        const [cases, records, expenses, payments] = await Promise.all([
           api(`/api/cases?requesterId=${state.user.id}`),
           state.user.isBoss ? api("/api/company-records") : Promise.resolve([]),
-          api(`/api/expense-claims?requesterId=${state.user.id}`)
+          api(`/api/expense-claims?requesterId=${state.user.id}`),
+          state.user.isBoss ? api(`/api/payment-schedules?requesterId=${state.user.id}`) : Promise.resolve([])
         ]);
         state.cases = cases;
         state.records = records;
         state.expenses = expenses;
+        state.payments = payments;
         if (state.user.isBoss) state.users = await api(`/api/users?requesterId=${state.user.id}`);
       } catch (error) {
         state.apiError = error.message;
         state.cases = [];
         state.records = [];
         state.expenses = [];
+        state.payments = [];
         state.users = [];
       } finally {
         state.loading = false;
@@ -1076,6 +1080,21 @@
       return state.records
         .filter(record => record.kind === "零用金" && record.paymentStatus === "未支出" && String(record.date).startsWith(month))
         .reduce((sum, record) => sum + Number(record.amount || 0), 0);
+    }
+
+    function paymentsForCase(caseId) {
+      return state.payments.filter(payment => payment.caseId === caseId);
+    }
+
+    function paymentSummary(payments = state.payments) {
+      const today = new Date().toISOString().slice(0, 10);
+      return {
+        totalDue: payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0),
+        paid: payments.filter(payment => payment.status === "已收").reduce((sum, payment) => sum + Number(payment.amount || 0), 0),
+        unpaid: payments.filter(payment => payment.status !== "已收").reduce((sum, payment) => sum + Number(payment.amount || 0), 0),
+        overdue: payments.filter(payment => payment.status !== "已收" && payment.dueDate < today).reduce((sum, payment) => sum + Number(payment.amount || 0), 0),
+        cash: payments.filter(payment => payment.status === "已收" && payment.method === "現金").reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
+      };
     }
 
     function renderRecordRows(records = state.records) {
@@ -1684,8 +1703,7 @@
 
     function renderFinance() {
       const total = state.cases.reduce((sum, item) => sum + item.quote, 0);
-      const paid = state.cases.filter(item => item.status === "已完成").reduce((sum, item) => sum + item.quote, 0);
-      const receivable = state.cases.filter(item => item.status === "待驗收").reduce((sum, item) => sum + item.quote, 0);
+      const paymentStats = paymentSummary();
       const active = state.cases.filter(item => item.status === "製作中").reduce((sum, item) => sum + item.quote, 0);
       const salary = employeeList().reduce((sum, employee) => sum + payrollFor(employee.name).total, 0);
       const pettyCash = monthlyPettyCash();
@@ -1693,9 +1711,11 @@
       els.viewRoot.innerHTML = `
         <div class="grid metrics">
           <div class="metric"><span>本月總案件金額</span><b>${money(total)}</b></div>
-          <div class="metric"><span>已完成收款</span><b>${money(paid)}</b></div>
-          <div class="metric"><span>待收款</span><b>${money(receivable)}</b></div>
+          <div class="metric"><span>已收款</span><b>${money(paymentStats.paid)}</b></div>
+          <div class="metric"><span>待收款</span><b>${money(paymentStats.unpaid)}</b></div>
           <div class="metric"><span>進行中總金額</span><b>${money(active)}</b></div>
+          <div class="metric"><span>逾期未收</span><b>${money(paymentStats.overdue)}</b></div>
+          <div class="metric"><span>現金收入</span><b>${money(paymentStats.cash)}</b></div>
           <div class="metric"><span>零用金支出</span><b>${money(pettyCash)}</b></div>
           <div class="metric"><span>未支出零用金</span><b>${money(pendingCash)}</b></div>
         </div>
@@ -1720,6 +1740,7 @@
             <div class="split"><span>預估成本</span><strong>${money(item.cost)}</strong></div>
             <div class="split"><span>分潤支出</span><strong>${money(caseSplitTotal(item))}</strong></div>
             <div class="split"><span>預估利潤</span><strong>${money(caseProfit(item))}</strong></div>
+            <div class="split"><span>收款進度</span><strong>${money(paymentSummary(paymentsForCase(item.id)).paid)} / ${money(paymentSummary(paymentsForCase(item.id)).totalDue || item.quote)}</strong></div>
             ${(item.splits || []).length ? `<p class="small">拆帳：${item.splits.map(split => `${esc(split.employee)} ${esc(split.workType)} ${esc(splitMethodLabel(split))}`).join(" · ")}</p>` : `<p class="small">尚未設定拆帳</p>`}
           </div>`).join("") : emptyPanel()}
         </div>
@@ -1794,6 +1815,52 @@
       `;
     }
 
+    function renderPaymentSchedules(item) {
+      if (!state.user.isBoss) return "";
+      const rows = paymentsForCase(item.id);
+      const summary = paymentSummary(rows);
+      return `
+        <div class="money-band">
+          <div class="split"><h3>收款排程</h3><strong>${money(summary.paid)} / ${money(summary.totalDue || item.quote)}</strong></div>
+          <form id="paymentScheduleForm" class="delivery-form" data-payment-case="${esc(item.id)}">
+            <div class="grid metrics">
+              <div class="field"><label for="paymentTitle">款項名稱</label><input id="paymentTitle" required placeholder="訂金、尾款、第一期"></div>
+              <div class="field"><label for="paymentDueDate">應收日期</label><input id="paymentDueDate" type="date" required></div>
+            </div>
+            <div class="grid metrics">
+              <div class="field"><label for="paymentAmount">應收金額</label><input id="paymentAmount" type="number" min="0" inputmode="numeric" required></div>
+              <div class="field">
+                <label for="paymentStatus">狀態</label>
+                <select id="paymentStatus"><option>未收</option><option>已收</option></select>
+              </div>
+            </div>
+            <div class="grid metrics">
+              <div class="field"><label for="paymentPaidDate">實收日期</label><input id="paymentPaidDate" type="date"></div>
+              <div class="field">
+                <label for="paymentMethod">收款方式</label>
+                <select id="paymentMethod"><option>現金</option><option>轉帳</option><option>Line Pay</option><option>其他</option></select>
+              </div>
+            </div>
+            <div class="field"><label for="paymentNotes">備註</label><input id="paymentNotes" placeholder="合約頭款、尾款、匯款帳號等"></div>
+            <button class="primary" type="submit">新增收款</button>
+          </form>
+          <div class="grid">
+            ${rows.length ? rows.map(payment => `
+              <div class="finance-row">
+                <div class="split"><h3>${esc(payment.title)}</h3><span class="badge">${esc(payment.status)}</span></div>
+                <p class="small">應收 ${esc(payment.dueDate)} · ${money(payment.amount)}</p>
+                <p class="small">${payment.status === "已收" ? `實收 ${esc(payment.paidDate || "")} · ${esc(payment.method)}` : "尚未收款"}${payment.notes ? ` · ${esc(payment.notes)}` : ""}</p>
+                <div class="form-actions">
+                  <button class="ghost" type="button" data-delete-payment="${payment.id}">刪除</button>
+                  <button class="primary" type="button" data-toggle-payment="${payment.id}" data-payment-status="${payment.status === "已收" ? "未收" : "已收"}">${payment.status === "已收" ? "標記未收" : "標記已收"}</button>
+                </div>
+              </div>
+            `).join("") : `<p class="small">尚未設定收款排程。</p>`}
+          </div>
+        </div>
+      `;
+    }
+
     function openCase(id) {
       const item = state.cases.find(entry => entry.id === id);
       if (!item) return;
@@ -1864,6 +1931,7 @@
           <div class="section-title"><h3>拆帳明細</h3></div>
           ${renderSplitSummary(item)}
         </div>
+        ${renderPaymentSchedules(item)}
         <div class="${!canSeeMoney && ownSplits.length ? "money-band" : "hidden"}">
           <div class="split"><h3>我的分潤</h3><strong>${money(ownSplits.reduce((sum, split) => sum + splitAmount(split, item.quote), 0))}</strong></div>
           ${renderSplitSummary(item)}
@@ -1968,6 +2036,56 @@
       openCase(id);
     }
 
+    async function createPaymentSchedule(event) {
+      event.preventDefault();
+      const caseId = event.target.dataset.paymentCase;
+      const payment = await api("/api/payment-schedules", {
+        method: "POST",
+        body: JSON.stringify({
+          requesterId: state.user.id,
+          caseId,
+          title: document.querySelector("#paymentTitle").value.trim(),
+          dueDate: document.querySelector("#paymentDueDate").value,
+          amount: Number(document.querySelector("#paymentAmount").value || 0),
+          status: document.querySelector("#paymentStatus").value,
+          paidDate: document.querySelector("#paymentPaidDate").value,
+          method: document.querySelector("#paymentMethod").value,
+          notes: document.querySelector("#paymentNotes").value.trim()
+        })
+      });
+      state.payments.push(payment);
+      renderApp();
+      openCase(caseId);
+    }
+
+    async function togglePaymentSchedule(id, status) {
+      const existing = state.payments.find(payment => String(payment.id) === String(id));
+      const payment = await api(`/api/payment-schedules/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          requesterId: state.user.id,
+          status,
+          paidDate: status === "已收" ? new Date().toISOString().slice(0, 10) : "",
+          method: existing?.method || "現金",
+          notes: existing?.notes || ""
+        })
+      });
+      state.payments = state.payments.map(item => String(item.id) === String(id) ? payment : item);
+      renderApp();
+      openCase(payment.caseId);
+    }
+
+    async function deletePaymentSchedule(id) {
+      const existing = state.payments.find(payment => String(payment.id) === String(id));
+      await api(`/api/payment-schedules/${id}`, {
+        method: "DELETE",
+        body: JSON.stringify({ requesterId: state.user.id })
+      });
+      state.payments = state.payments.filter(payment => String(payment.id) !== String(id));
+      renderApp();
+      if (existing) openCase(existing.caseId);
+    }
+
     async function deleteCase(id) {
       await api(`/api/cases/${id}`, { method: "DELETE" });
       state.cases = state.cases.filter(item => item.id !== id);
@@ -2003,6 +2121,16 @@
       if (deleteRecordBtn && confirm("這會從 Zeabur 資料庫刪除此行政紀錄，確定刪除？")) {
         deleteCompanyRecord(deleteRecordBtn.dataset.deleteRecord).catch(error => alert(error.message));
       }
+
+      const togglePaymentBtn = event.target.closest("[data-toggle-payment]");
+      if (togglePaymentBtn) {
+        togglePaymentSchedule(togglePaymentBtn.dataset.togglePayment, togglePaymentBtn.dataset.paymentStatus).catch(error => alert(error.message));
+      }
+
+      const deletePaymentBtn = event.target.closest("[data-delete-payment]");
+      if (deletePaymentBtn && confirm("這會刪除此筆收款排程，確定刪除？")) {
+        deletePaymentSchedule(deletePaymentBtn.dataset.deletePayment).catch(error => alert(error.message));
+      }
     });
 
     document.addEventListener("change", event => {
@@ -2033,6 +2161,7 @@
       if (event.target.id === "caseNotesForm") updateCaseNotes(event).catch(error => alert(error.message));
       if (event.target.id === "caseOwnerForm") updateCaseOwner(event).catch(error => alert(error.message));
       if (event.target.id === "deliveryForm") updateDelivery(event).catch(error => alert(error.message));
+      if (event.target.id === "paymentScheduleForm") createPaymentSchedule(event).catch(error => alert(error.message));
     });
 
   </script>
