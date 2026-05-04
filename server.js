@@ -674,6 +674,31 @@ app.patch("/api/cases/:id/review", async (req, res, next) => {
   }
 });
 
+app.patch("/api/cases/:id/notes", async (req, res, next) => {
+  try {
+    if (req.body?.role !== "owner") {
+      res.status(403).json({ error: "只有老闆可以更新案件備註" });
+      return;
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE studio_cases
+       SET notes = $1,
+           updated_at = now()
+       WHERE id = $2
+       RETURNING *`,
+      [cleanText(req.body?.notes), req.params.id]
+    );
+    if (!rows[0]) {
+      res.status(404).json({ error: "找不到案件" });
+      return;
+    }
+    res.json(toCase(rows[0]));
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.patch("/api/cases/:id/checklist", async (req, res, next) => {
   try {
     const index = Number(req.body?.index);
