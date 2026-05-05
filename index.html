@@ -520,6 +520,11 @@
       gap: 12px;
     }
 
+    .split-rows {
+      display: grid;
+      gap: 12px;
+    }
+
     .split-row-form {
       display: grid;
       gap: 10px;
@@ -1275,49 +1280,61 @@
       `).join("");
     }
 
-    function renderSplitEditor() {
+    function renderSplitRow(index, removable = false) {
       const employees = employeeList();
       const employeeOptions = employees.length
         ? `<option value="">選擇員工</option>${employees.map(employee => `<option value="${esc(employee.name)}">${esc(employee.label)}</option>`).join("")}`
         : `<option value="">請先建立員工</option>`;
       const workOptions = Object.keys(caseTypes).map(type => `<option value="${esc(type)}">${esc(type)}</option>`).join("");
       return `
+        <div class="split-row-form" data-split-row>
+          <div class="split">
+            <span class="small">分潤人員</span>
+            ${removable ? `<button class="ghost" type="button" data-remove-split-row>刪除</button>` : ""}
+          </div>
+          <div class="grid metrics">
+            <div class="field">
+              <label for="splitEmployee${index}">員工</label>
+              <select id="splitEmployee${index}" data-split-employee>${employeeOptions}</select>
+            </div>
+            <div class="field">
+              <label for="splitWorkType${index}">工作</label>
+              <select id="splitWorkType${index}" data-split-work-type>${workOptions}</select>
+            </div>
+          </div>
+          <div class="grid metrics">
+            <div class="field">
+              <label for="splitMethod${index}">方式</label>
+              <select id="splitMethod${index}" data-split-method>
+                <option>固定金額</option>
+                <option>百分比</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="splitValue${index}">金額 / %</label>
+              <input id="splitValue${index}" data-split-value type="number" min="0" inputmode="numeric" placeholder="例如 3000 或 30">
+            </div>
+          </div>
+          <div class="field split-note">
+            <label for="splitNote${index}">備註</label>
+            <input id="splitNote${index}" data-split-note placeholder="例如：混音包辦、錄音 Session、協作拆分">
+          </div>
+        </div>
+      `;
+    }
+
+    function renderSplitEditor() {
+      return `
         <div class="split-editor">
           <div class="split">
             <h3>案件分潤設定</h3>
-            <span class="small">可固定金額、比例抽成、多人拆帳</span>
+            <span class="small">預設一位，需要再新增</span>
           </div>
-          ${[0, 1, 2, 3].map(index => `
-            <div class="split-row-form" data-split-row>
-              <div class="grid metrics">
-                <div class="field">
-                  <label for="splitEmployee${index}">員工</label>
-                  <select id="splitEmployee${index}" data-split-employee>${employeeOptions}</select>
-                </div>
-                <div class="field">
-                  <label for="splitWorkType${index}">工作</label>
-                  <select id="splitWorkType${index}" data-split-work-type>${workOptions}</select>
-                </div>
-              </div>
-              <div class="grid metrics">
-                <div class="field">
-                  <label for="splitMethod${index}">方式</label>
-                  <select id="splitMethod${index}" data-split-method>
-                    <option>固定金額</option>
-                    <option>百分比</option>
-                  </select>
-                </div>
-                <div class="field">
-                  <label for="splitValue${index}">金額 / %</label>
-                  <input id="splitValue${index}" data-split-value type="number" min="0" inputmode="numeric" placeholder="例如 3000 或 30">
-                </div>
-              </div>
-              <div class="field split-note">
-                <label for="splitNote${index}">備註</label>
-                <input id="splitNote${index}" data-split-note placeholder="例如：混音包辦、錄音 Session、協作拆分">
-              </div>
-            </div>
-          `).join("")}
+          <div id="splitRows" class="split-rows">
+            ${renderSplitRow(0)}
+          </div>
+          <button class="ghost" type="button" data-add-split-row>新增分潤人員</button>
+          <p class="small">可固定金額、比例抽成、多人拆帳。沒有分潤就留空。</p>
         </div>
       `;
     }
@@ -1444,6 +1461,17 @@
         if (firstSplitEmployee && !firstSplitEmployee.value) firstSplitEmployee.value = event.target.value;
       });
       setupHourlyControls();
+    }
+
+    function addSplitRow() {
+      const rows = [...document.querySelectorAll("[data-split-row]")];
+      if (rows.length >= 4) {
+        alert("最多可設定 4 位分潤人員。");
+        return;
+      }
+      const container = document.querySelector("#splitRows");
+      if (!container) return;
+      container.insertAdjacentHTML("beforeend", renderSplitRow(Date.now(), true));
     }
 
     async function createCase(event) {
@@ -2215,6 +2243,12 @@
 
       const caseBtn = event.target.closest("[data-case]");
       if (caseBtn) openCase(caseBtn.dataset.case);
+
+      const addSplitBtn = event.target.closest("[data-add-split-row]");
+      if (addSplitBtn) addSplitRow();
+
+      const removeSplitBtn = event.target.closest("[data-remove-split-row]");
+      if (removeSplitBtn) removeSplitBtn.closest("[data-split-row]")?.remove();
 
       const closeBtn = event.target.closest("[data-close-modal]");
       if (closeBtn) closeModal();
