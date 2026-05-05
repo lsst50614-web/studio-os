@@ -760,6 +760,8 @@
       apiError: ""
     };
 
+    const sessionKey = "studio-os-session-user";
+
     const els = {
       loginScreen: document.querySelector("#loginScreen"),
       appScreen: document.querySelector("#appScreen"),
@@ -816,6 +818,34 @@
       const safe = safeUrl(url);
       if (!safe) return `<div class="link-button empty"><span>${esc(label)}</span><span>未設定</span></div>`;
       return `<a class="link-button" href="${esc(safe)}" target="_blank" rel="noopener noreferrer"><span>${esc(label)}</span><span>開啟</span></a>`;
+    }
+
+    function saveSession() {
+      if (!state.user) return;
+      localStorage.setItem(sessionKey, JSON.stringify(state.user));
+    }
+
+    function clearSession() {
+      localStorage.removeItem(sessionKey);
+    }
+
+    async function restoreSession() {
+      const raw = localStorage.getItem(sessionKey);
+      if (!raw) return;
+      try {
+        state.user = JSON.parse(raw);
+        state.page = "home";
+        els.loginScreen.classList.add("hidden");
+        els.appScreen.classList.remove("hidden");
+        els.bottomNav.classList.remove("hidden");
+        await refreshCases();
+      } catch (_error) {
+        state.user = null;
+        clearSession();
+        els.loginScreen.classList.remove("hidden");
+        els.appScreen.classList.add("hidden");
+        els.bottomNav.classList.add("hidden");
+      }
     }
 
     function splitAmount(split, quote) {
@@ -939,6 +969,7 @@
       }
       state.user = account;
       state.page = "home";
+      saveSession();
       els.loginError.textContent = "";
       els.username.value = "";
       els.password.value = "";
@@ -950,6 +981,7 @@
 
     function logout() {
       state.user = null;
+      clearSession();
       els.loginScreen.classList.remove("hidden");
       els.appScreen.classList.add("hidden");
       els.bottomNav.classList.add("hidden");
@@ -1625,6 +1657,7 @@
         })
       });
       state.user = user;
+      saveSession();
       alert("本月工作已更新。");
       renderApp();
     }
@@ -2220,6 +2253,11 @@
       if (event.target.id === "caseOwnerForm") updateCaseOwner(event).catch(error => alert(error.message));
       if (event.target.id === "deliveryForm") updateDelivery(event).catch(error => alert(error.message));
       if (event.target.id === "paymentScheduleForm") createPaymentSchedule(event).catch(error => alert(error.message));
+    });
+
+    restoreSession().catch(error => {
+      state.apiError = error.message;
+      renderApp();
     });
 
   </script>
