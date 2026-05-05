@@ -742,7 +742,9 @@
       "母帶": ["素材接收", "聲音分析", "母帶處理", "試聽確認", "最終版本", "交件"],
       "廣告配樂": ["廣告簡報", "風格確認", "初版配樂", "影片對位", "修改", "交件"],
       "電影配樂": ["劇本分析", "音樂風格會議", "主題曲創作", "配樂錄製", "混音", "交件"],
-      "錄音室租借": ["時段確認", "設備確認", "進場", "使用完成", "場地復原", "結案"]
+      "錄音室租借": ["時段確認", "設備確認", "進場", "使用完成", "場地復原", "結案"],
+      "Podcast 錄音": ["錄音時段確認", "設備與麥克風確認", "錄音 Session", "檔案備份", "初步檢查", "交件"],
+      "Podcast 剪輯": ["素材接收", "內容整理", "剪輯粗修", "降噪與音量平衡", "客戶確認", "交件"]
     };
 
     const workOptions = Object.keys(caseTypes);
@@ -1310,7 +1312,7 @@
     }
 
     function isHourlyCase(type) {
-      return ["錄音", "錄音室租借"].includes(type);
+      return ["錄音", "錄音室租借", "Podcast 錄音"].includes(type);
     }
 
     function renderHourlyPanel() {
@@ -1377,7 +1379,7 @@
       const toggleHourly = () => {
         const enabled = isHourlyCase(caseType.value);
         panel.classList.toggle("hidden", !enabled);
-        title.textContent = caseType.value === "錄音" ? "錄音時數" : "錄音室租借";
+        title.textContent = caseType.value === "錄音室租借" ? "錄音室租借" : "錄音時數";
         if (caseType.value === "錄音" && preset.value === "custom" && !rate.value) preset.value = "recording";
         if (enabled) applyPreset();
       };
