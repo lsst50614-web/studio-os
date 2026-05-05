@@ -203,6 +203,7 @@
       color: #061014;
       border: 0;
       min-height: 48px;
+      text-decoration: none;
     }
 
     .ghost {
@@ -993,7 +994,8 @@
     function navItems() {
       const items = [
         { key: "home", label: "首頁", icon: "home" },
-        { key: "cases", label: "案件", icon: "briefcase" }
+        { key: "cases", label: "案件", icon: "briefcase" },
+        { key: "calendar", label: "行事曆", icon: "calendar" }
       ];
       if (state.user.isBoss) {
         items.push({ key: "new", label: "新增", icon: "plus" });
@@ -1012,6 +1014,7 @@
         plus: '<path d="M12 5v14M5 12h14"/>',
         clipboard: '<path d="M9 4h6l1 2h3v15H5V6h3z"/><path d="M9 11h6M9 15h6"/>',
         receipt: '<path d="M6 3h12v18l-2-1-2 1-2-1-2 1-2-1-2 1z"/><path d="M9 8h6M9 12h6M9 16h4"/>',
+        calendar: '<path d="M8 2v4M16 2v4"/><path d="M3 10h18"/><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/>',
         chart: '<path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-5"/><path d="M12 16V8"/><path d="M16 16v-9"/>'
       };
       return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">${paths[name]}</svg>`;
@@ -1028,9 +1031,9 @@
 
     function renderApp() {
       if (!state.user) return;
-      if (!state.user.isBoss && !["home", "cases", "expense"].includes(state.page)) state.page = "home";
+      if (!state.user.isBoss && !["home", "cases", "calendar", "expense"].includes(state.page)) state.page = "home";
       renderNav();
-      const titleMap = { home: "首頁", cases: "案件管理", new: "新增案件", company: "行政", finance: "財務", expense: "報帳" };
+      const titleMap = { home: "首頁", cases: "案件管理", calendar: "行事曆", new: "新增案件", company: "行政", finance: "財務", expense: "報帳" };
       els.pageTitle.textContent = titleMap[state.page];
       els.eyebrow.textContent = state.user.isBoss ? "老闆視角" : `${state.user.label}視角`;
       els.logoutBtn.innerHTML = `<span>${state.user.icon}</span><span>登出</span>`;
@@ -1044,6 +1047,7 @@
       }
       if (state.page === "home") renderHome();
       if (state.page === "cases") renderCases();
+      if (state.page === "calendar") renderCalendar();
       if (state.page === "new") renderNewCase();
       if (state.page === "company") renderCompany();
       if (state.page === "finance") renderFinance();
@@ -1232,6 +1236,21 @@
         </div>
         <div class="grid">
           ${items.length ? renderCaseCards(items) : emptyPanel("目前沒有符合條件的案件。")}
+        </div>
+      `;
+    }
+
+    function renderCalendar() {
+      const timeTreeUrl = "https://timetreeapp.com/calendars/MY349bB69DA6";
+      els.viewRoot.innerHTML = `
+        <div class="panel">
+          <h2>公司行事曆</h2>
+          <p class="muted">目前沿用 TimeTree 私人行事曆。只有已加入該行事曆、並登入 TimeTree 的成員才能查看內容。</p>
+          <a class="primary" href="${timeTreeUrl}" target="_blank" rel="noopener noreferrer">開啟 TimeTree 行事曆</a>
+        </div>
+        <div class="panel">
+          <h3>使用方式</h3>
+          <p class="muted">錄音時間、租借時段、排程異動先維持在 TimeTree 登記；案件價格、薪資、付款、客戶細節仍然放在晨嵐音樂系統。</p>
         </div>
       `;
     }
