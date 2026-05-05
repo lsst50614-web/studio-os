@@ -5,6 +5,7 @@
 ## Features
 
 - Account-based login for owner and staff views
+- Browser refresh keeps the current signed-in account until logout
 - Case management with status filters and checklist progress
 - Recording cases can track hours, hourly rate, and percentage payouts
 - Studio rental service with hourly pricing presets and custom rates
