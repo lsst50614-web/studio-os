@@ -757,6 +757,7 @@
     };
 
     const workOptions = Object.keys(caseTypes);
+    const staffSelfWorkOptions = ["員工錄音室租借", "歌唱課", "編曲課"];
 
     const state = {
       user: null,
@@ -1671,7 +1672,7 @@
         <div class="section-title"><h3>我的本月工作</h3></div>
         <form id="workTypesForm" class="panel">
           <div class="checklist">
-            ${workOptions.map(type => `
+            ${staffSelfWorkOptions.map(type => `
               <label class="check-item">
                 <input type="checkbox" name="workType" value="${esc(type)}" ${selected.has(type) ? "checked" : ""}>
                 <span>${esc(type)}</span>
