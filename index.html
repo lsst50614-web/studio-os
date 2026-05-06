@@ -1405,6 +1405,19 @@
       const firstSplitMethod = document.querySelector("[data-split-method]");
       const firstSplitValue = document.querySelector("[data-split-value]");
       const firstSplitNote = document.querySelector("[data-split-note]");
+      const addSplitButton = document.querySelector("[data-add-split-row]");
+      const lockedCourseTypes = ["歌唱課", "編曲課"];
+
+      const setReadonly = (input, locked) => {
+        if (!input) return;
+        input.readOnly = locked;
+        input.setAttribute("aria-readonly", locked ? "true" : "false");
+      };
+
+      const setDisabled = (input, locked) => {
+        if (!input) return;
+        input.disabled = locked;
+      };
 
       const refreshQuote = () => {
         if (!isHourlyCase(caseType.value)) return;
@@ -1425,7 +1438,7 @@
         if (preset.value === "vocalCourse") {
           hours.value = "4";
           rate.value = "1000";
-          if (firstSplitEmployee && !firstSplitEmployee.value) firstSplitEmployee.value = document.querySelector("#owner").value;
+          if (firstSplitEmployee) firstSplitEmployee.value = document.querySelector("#owner").value;
           if (firstSplitWorkType) firstSplitWorkType.value = "歌唱課";
           if (firstSplitMethod) firstSplitMethod.value = "百分比";
           if (firstSplitValue) firstSplitValue.value = "70";
@@ -1434,7 +1447,7 @@
         if (preset.value === "arrangementCourse") {
           hours.value = "2";
           rate.value = "1000";
-          if (firstSplitEmployee && !firstSplitEmployee.value) firstSplitEmployee.value = document.querySelector("#owner").value;
+          if (firstSplitEmployee) firstSplitEmployee.value = document.querySelector("#owner").value;
           if (firstSplitWorkType) firstSplitWorkType.value = "編曲課";
           if (firstSplitMethod) firstSplitMethod.value = "百分比";
           if (firstSplitValue) firstSplitValue.value = "70";
@@ -1454,12 +1467,18 @@
       const toggleHourly = () => {
         const enabled = isHourlyCase(caseType.value);
         const staffRental = caseType.value === "員工錄音室租借";
+        const lockedCourse = lockedCourseTypes.includes(caseType.value);
         panel.classList.toggle("hidden", !enabled);
         title.textContent = ["歌唱課", "編曲課"].includes(caseType.value) ? "課程時數" : caseType.value.includes("錄音室租借") ? caseType.value : "錄音時數";
         if (caseType.value === "錄音" && preset.value === "custom" && !rate.value) preset.value = "recording";
-        preset.disabled = staffRental;
-        rate.readOnly = staffRental;
-        rate.setAttribute("aria-readonly", staffRental ? "true" : "false");
+        preset.disabled = staffRental || lockedCourse;
+        setReadonly(hours, lockedCourse);
+        setReadonly(rate, staffRental || lockedCourse);
+        setDisabled(firstSplitWorkType, lockedCourse);
+        setDisabled(firstSplitMethod, lockedCourse);
+        setReadonly(firstSplitValue, lockedCourse);
+        setDisabled(addSplitButton, lockedCourse);
+        if (lockedCourse) [...document.querySelectorAll("[data-split-row]")].slice(1).forEach(row => row.remove());
         if (staffRental) preset.value = "staffRental";
         if (caseType.value === "歌唱課") preset.value = "vocalCourse";
         if (caseType.value === "編曲課") preset.value = "arrangementCourse";
@@ -1471,6 +1490,7 @@
       hours.addEventListener("input", refreshQuote);
       rate.addEventListener("input", () => {
         if (caseType.value === "員工錄音室租借") rate.value = "1000";
+        if (caseType.value === "歌唱課" || caseType.value === "編曲課") rate.value = "1000";
         refreshQuote();
       });
       toggleHourly();
@@ -1507,7 +1527,8 @@
       document.querySelector("#start").value = new Date().toISOString().slice(0, 10);
       document.querySelector("#owner").addEventListener("change", event => {
         const firstSplitEmployee = document.querySelector("[data-split-employee]");
-        if (firstSplitEmployee && !firstSplitEmployee.value) firstSplitEmployee.value = event.target.value;
+        const caseType = document.querySelector("#caseType").value;
+        if (firstSplitEmployee && (["歌唱課", "編曲課"].includes(caseType) || !firstSplitEmployee.value)) firstSplitEmployee.value = event.target.value;
       });
       setupHourlyControls();
     }
