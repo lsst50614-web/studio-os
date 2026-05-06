@@ -1453,10 +1453,14 @@
 
       const toggleHourly = () => {
         const enabled = isHourlyCase(caseType.value);
+        const staffRental = caseType.value === "員工錄音室租借";
         panel.classList.toggle("hidden", !enabled);
         title.textContent = ["歌唱課", "編曲課"].includes(caseType.value) ? "課程時數" : caseType.value.includes("錄音室租借") ? caseType.value : "錄音時數";
         if (caseType.value === "錄音" && preset.value === "custom" && !rate.value) preset.value = "recording";
-        if (caseType.value === "員工錄音室租借") preset.value = "staffRental";
+        preset.disabled = staffRental;
+        rate.readOnly = staffRental;
+        rate.setAttribute("aria-readonly", staffRental ? "true" : "false");
+        if (staffRental) preset.value = "staffRental";
         if (caseType.value === "歌唱課") preset.value = "vocalCourse";
         if (caseType.value === "編曲課") preset.value = "arrangementCourse";
         if (enabled) applyPreset();
@@ -1465,7 +1469,10 @@
       caseType.addEventListener("change", toggleHourly);
       preset.addEventListener("change", applyPreset);
       hours.addEventListener("input", refreshQuote);
-      rate.addEventListener("input", refreshQuote);
+      rate.addEventListener("input", () => {
+        if (caseType.value === "員工錄音室租借") rate.value = "1000";
+        refreshQuote();
+      });
       toggleHourly();
     }
 
