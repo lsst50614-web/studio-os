@@ -846,6 +846,7 @@
       if (!raw) return;
       try {
         state.user = JSON.parse(raw);
+        if (!state.user?.token) throw new Error("session token missing");
         state.page = "home";
         els.loginScreen.classList.add("hidden");
         els.appScreen.classList.remove("hidden");
@@ -901,8 +902,10 @@
     }
 
     async function api(path, options = {}) {
+      const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+      if (state.user?.token) headers["X-Studio-Token"] = state.user.token;
       const response = await fetch(path, {
-        headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+        headers,
         ...options
       });
       if (!response.ok) {
@@ -916,22 +919,33 @@
       return response.status === 204 ? null : response.json();
     }
 
+    function authQuery() {
+      return `requesterId=${encodeURIComponent(state.user.id)}`;
+    }
+
+    function authPayload(payload = {}) {
+      return {
+        requesterId: state.user.id,
+        ...payload
+      };
+    }
+
     async function refreshCases() {
       state.loading = true;
       state.apiError = "";
       renderApp();
       try {
         const [cases, records, expenses, payments] = await Promise.all([
-          api(`/api/cases?requesterId=${state.user.id}`),
-          state.user.isBoss ? api(`/api/company-records?requesterId=${state.user.id}`) : Promise.resolve([]),
-          api(`/api/expense-claims?requesterId=${state.user.id}`),
-          state.user.isBoss ? api(`/api/payment-schedules?requesterId=${state.user.id}`) : Promise.resolve([])
+          api(`/api/cases?${authQuery()}`),
+          state.user.isBoss ? api(`/api/company-records?${authQuery()}`) : Promise.resolve([]),
+          api(`/api/expense-claims?${authQuery()}`),
+          state.user.isBoss ? api(`/api/payment-schedules?${authQuery()}`) : Promise.resolve([])
         ]);
         state.cases = cases;
         state.records = records;
         state.expenses = expenses;
         state.payments = payments;
-        if (state.user.isBoss) state.users = await api(`/api/users?requesterId=${state.user.id}`);
+        if (state.user.isBoss) state.users = await api(`/api/users?${authQuery()}`);
       } catch (error) {
         state.apiError = error.message;
         state.cases = [];
@@ -1574,7 +1588,6 @@
         }))
         .filter(split => split.employee && split.value > 0);
       const payload = {
-        requesterId: state.user.id,
         name: document.querySelector("#caseName").value.trim(),
         type,
         client: document.querySelector("#client").value.trim(),
@@ -1593,7 +1606,7 @@
         sourceMaterialUrl: document.querySelector("#sourceMaterialUrl").value.trim(),
         splits
       };
-      const item = await api("/api/cases", { method: "POST", body: JSON.stringify(payload) });
+      const item = await api("/api/cases", { method: "POST", body: JSON.stringify(authPayload(payload)) });
       state.cases.unshift(item);
       state.page = "cases";
       state.filter = "全部";
@@ -1728,12 +1741,11 @@
       event.preventDefault();
       const user = await api("/api/users", {
         method: "POST",
-        body: JSON.stringify({
-          requesterId: state.user.id,
+        body: JSON.stringify(authPayload({
           email: document.querySelector("#userEmail").value.trim(),
           displayName: document.querySelector("#userName").value.trim(),
           password: document.querySelector("#userPassword").value
-        })
+        }))
       });
       state.users.push(user);
       renderApp();
@@ -1741,13 +1753,14 @@
 
     async function updateMyPassword(event) {
       event.preventDefault();
-      await api(`/api/users/${state.user.id}/password`, {
+      const user = await api(`/api/users/${state.user.id}/password`, {
         method: "PATCH",
-        body: JSON.stringify({
-          requesterId: state.user.id,
+        body: JSON.stringify(authPayload({
           password: document.querySelector("#newPassword").value
-        })
+        }))
       });
+      state.user = { ...state.user, ...user };
+      saveSession();
       alert("密碼已更新。");
       document.querySelector("#newPassword").value = "";
     }
@@ -1759,10 +1772,9 @@
       const password = form.querySelector("[name='temporaryPassword']").value;
       await api(`/api/users/${employeeId}/password`, {
         method: "PATCH",
-        body: JSON.stringify({
-          requesterId: state.user.id,
+        body: JSON.stringify(authPayload({
           password
-        })
+        }))
       });
       alert("員工密碼已重設。");
       form.reset();
@@ -1774,10 +1786,9 @@
       const employeeId = form.dataset.baseSalaryFor;
       const user = await api(`/api/users/${employeeId}/base-salary`, {
         method: "PATCH",
-        body: JSON.stringify({
-          requesterId: state.user.id,
+        body: JSON.stringify(authPayload({
           baseSalary: Number(form.querySelector("[name='baseSalary']").value || 0)
-        })
+        }))
       });
       state.users = state.users.map(item => item.id === user.id ? user : item);
       renderApp();
@@ -1788,12 +1799,11 @@
       const selected = [...document.querySelectorAll("input[name='workType']:checked")].map(input => input.value);
       const user = await api(`/api/users/${state.user.id}/work-types`, {
         method: "PATCH",
-        body: JSON.stringify({
-          requesterId: state.user.id,
+        body: JSON.stringify(authPayload({
           workTypes: selected
-        })
+        }))
       });
-      state.user = user;
+      state.user = { ...state.user, ...user };
       saveSession();
       alert("本月工作已更新。");
       renderApp();
@@ -1832,12 +1842,11 @@
       const receiptImage = await imageFileToDataUrl(receiptFile);
       const expense = await api("/api/expense-claims", {
         method: "POST",
-        body: JSON.stringify({
-          requesterId: state.user.id,
+        body: JSON.stringify(authPayload({
           itemName: document.querySelector("#expenseItemName").value.trim(),
           purchaseDate: document.querySelector("#expensePurchaseDate").value,
           receiptImage
-        })
+        }))
       });
       state.expenses.unshift(expense);
       renderApp();
@@ -1846,7 +1855,6 @@
     async function createCompanyRecord(event) {
       event.preventDefault();
       const payload = {
-        requesterId: state.user.id,
         role: state.user.isBoss ? "owner" : "staff",
         kind: document.querySelector("#recordKind").value,
         title: document.querySelector("#recordTitle").value.trim(),
@@ -1857,7 +1865,7 @@
       };
       const record = await api("/api/company-records", {
         method: "POST",
-        body: JSON.stringify(payload)
+        body: JSON.stringify(authPayload(payload))
       });
       state.records.unshift(record);
       renderApp();
@@ -1866,10 +1874,9 @@
     async function deleteCompanyRecord(id) {
       await api(`/api/company-records/${id}`, {
         method: "DELETE",
-        body: JSON.stringify({
-          requesterId: state.user.id,
+        body: JSON.stringify(authPayload({
           role: state.user.isBoss ? "owner" : "staff"
-        })
+        }))
       });
       state.records = state.records.filter(record => String(record.id) !== String(id));
       renderApp();
@@ -2146,7 +2153,7 @@
     async function updateChecklist(id, index, checked) {
       const item = await api(`/api/cases/${id}/checklist`, {
         method: "PATCH",
-        body: JSON.stringify({ requesterId: state.user.id, index, checked })
+        body: JSON.stringify(authPayload({ index, checked }))
       });
       state.cases = state.cases.map(entry => entry.id === id ? item : entry);
       openCase(id);
@@ -2156,11 +2163,10 @@
     async function updateStatus(id, status) {
       const item = await api(`/api/cases/${id}/status`, {
         method: "PATCH",
-        body: JSON.stringify({
-          requesterId: state.user.id,
+        body: JSON.stringify(authPayload({
           status,
           role: state.user.isBoss ? "owner" : "staff"
-        })
+        }))
       });
       state.cases = state.cases.map(entry => entry.id === id ? item : entry);
       renderApp();
@@ -2171,11 +2177,10 @@
       const id = event.target.dataset.reviewFor;
       const item = await api(`/api/cases/${id}/review`, {
         method: "PATCH",
-        body: JSON.stringify({
-          requesterId: state.user.id,
+        body: JSON.stringify(authPayload({
           role: state.user.isBoss ? "owner" : "staff",
           reviewNotes: document.querySelector("#modalReviewNotes").value.trim()
-        })
+        }))
       });
       state.cases = state.cases.map(entry => entry.id === id ? item : entry);
       renderApp();
@@ -2187,11 +2192,10 @@
       const id = event.target.dataset.notesFor;
       const item = await api(`/api/cases/${id}/notes`, {
         method: "PATCH",
-        body: JSON.stringify({
-          requesterId: state.user.id,
+        body: JSON.stringify(authPayload({
           role: state.user.isBoss ? "owner" : "staff",
           notes: document.querySelector("#modalCaseNotes").value.trim()
-        })
+        }))
       });
       state.cases = state.cases.map(entry => entry.id === id ? item : entry);
       renderApp();
@@ -2203,11 +2207,10 @@
       const id = event.target.dataset.ownerFor;
       const item = await api(`/api/cases/${id}/owner`, {
         method: "PATCH",
-        body: JSON.stringify({
-          requesterId: state.user.id,
+        body: JSON.stringify(authPayload({
           role: state.user.isBoss ? "owner" : "staff",
           owner: document.querySelector("#modalCaseOwner").value
-        })
+        }))
       });
       state.cases = state.cases.map(entry => entry.id === id ? item : entry);
       renderApp();
@@ -2219,13 +2222,12 @@
       const id = event.target.dataset.deliveryFor;
       const item = await api(`/api/cases/${id}/delivery`, {
         method: "PATCH",
-        body: JSON.stringify({
-          requesterId: state.user.id,
+        body: JSON.stringify(authPayload({
           driveFolderUrl: document.querySelector("#modalDriveFolderUrl").value.trim(),
           sourceMaterialUrl: document.querySelector("#modalSourceMaterialUrl").value.trim(),
           deliveryUrl: document.querySelector("#modalDeliveryUrl").value.trim(),
           deliveryNotes: document.querySelector("#modalDeliveryNotes").value.trim()
-        })
+        }))
       });
       state.cases = state.cases.map(entry => entry.id === id ? item : entry);
       renderApp();
@@ -2237,8 +2239,7 @@
       const caseId = event.target.dataset.paymentCase;
       const payment = await api("/api/payment-schedules", {
         method: "POST",
-        body: JSON.stringify({
-          requesterId: state.user.id,
+        body: JSON.stringify(authPayload({
           caseId,
           title: document.querySelector("#paymentTitle").value.trim(),
           dueDate: document.querySelector("#paymentDueDate").value,
@@ -2247,7 +2248,7 @@
           paidDate: document.querySelector("#paymentPaidDate").value,
           method: document.querySelector("#paymentMethod").value,
           notes: document.querySelector("#paymentNotes").value.trim()
-        })
+        }))
       });
       state.payments.push(payment);
       renderApp();
@@ -2273,8 +2274,7 @@
         const status = index === 0 ? firstStatus : "未收";
         const payment = await api("/api/payment-schedules", {
           method: "POST",
-          body: JSON.stringify({
-            requesterId: state.user.id,
+          body: JSON.stringify(authPayload({
             caseId,
             title: `第 ${index + 1} 期`,
             dueDate,
@@ -2283,7 +2283,7 @@
             paidDate: status === "已收" ? dueDate : "",
             method,
             notes: index === 0 && status === "已收" ? "第一期已收" : ""
-          })
+          }))
         });
         created.push(payment);
       }
@@ -2296,13 +2296,12 @@
       const existing = state.payments.find(payment => String(payment.id) === String(id));
       const payment = await api(`/api/payment-schedules/${id}`, {
         method: "PATCH",
-        body: JSON.stringify({
-          requesterId: state.user.id,
+        body: JSON.stringify(authPayload({
           status,
           paidDate: status === "已收" ? localDateString() : "",
           method: existing?.method || "現金",
           notes: existing?.notes || ""
-        })
+        }))
       });
       state.payments = state.payments.map(item => String(item.id) === String(id) ? payment : item);
       renderApp();
@@ -2313,7 +2312,7 @@
       const existing = state.payments.find(payment => String(payment.id) === String(id));
       await api(`/api/payment-schedules/${id}`, {
         method: "DELETE",
-        body: JSON.stringify({ requesterId: state.user.id })
+        body: JSON.stringify(authPayload())
       });
       state.payments = state.payments.filter(payment => String(payment.id) !== String(id));
       renderApp();
@@ -2323,7 +2322,7 @@
     async function deleteCase(id) {
       await api(`/api/cases/${id}`, {
         method: "DELETE",
-        body: JSON.stringify({ requesterId: state.user.id })
+        body: JSON.stringify(authPayload())
       });
       state.cases = state.cases.filter(item => item.id !== id);
       closeModal();

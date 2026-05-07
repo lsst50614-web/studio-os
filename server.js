@@ -264,6 +264,48 @@ function verifyPassword(password, salt, expectedHash) {
   return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
 }
 
+function sessionSecret() {
+  return process.env.SESSION_SECRET ||
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_CONNECTION_STRING ||
+    "studio-os-local-session-secret";
+}
+
+function signSessionPayload(payload, passwordHash) {
+  return crypto
+    .createHmac("sha256", `${sessionSecret()}:${passwordHash}`)
+    .update(payload)
+    .digest("base64url");
+}
+
+function createSessionToken(user) {
+  const payload = Buffer.from(JSON.stringify({
+    id: user.id,
+    exp: Date.now() + 1000 * 60 * 60 * 24 * 30
+  })).toString("base64url");
+  return `${payload}.${signSessionPayload(payload, user.password_hash)}`;
+}
+
+function verifySessionToken(user, token) {
+  const text = cleanText(token);
+  const [payload, signature] = text.split(".");
+  if (!payload || !signature) return false;
+  const expected = signSessionPayload(payload, user.password_hash);
+  const actualBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (actualBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)) return false;
+  try {
+    const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    return Number(data.id) === Number(user.id) && Number(data.exp) > Date.now();
+  } catch (_error) {
+    return false;
+  }
+}
+
+function requestToken(req) {
+  return cleanText(req.get("x-studio-token") || req.query.requesterToken || req.body?.requesterToken);
+}
+
 function toCompanyRecord(row) {
   return {
     id: row.id,
@@ -325,17 +367,17 @@ async function getRequester(userId) {
   return requester.rows[0] || null;
 }
 
-async function requireUser(userId, res, message = "沒有權限操作") {
+async function requireUser(userId, token, res, message = "沒有權限操作") {
   const user = await getRequester(userId);
-  if (!user) {
+  if (!user || !verifySessionToken(user, token)) {
     res.status(403).json({ error: message });
     return null;
   }
   return user;
 }
 
-async function requireBoss(userId, res, message = "只有老闆可以操作") {
-  const user = await requireUser(userId, res, message);
+async function requireBoss(userId, token, res, message = "只有老闆可以操作") {
+  const user = await requireUser(userId, token, res, message);
   if (!user) return null;
   if (!user.is_boss) {
     res.status(403).json({ error: message });
@@ -355,8 +397,8 @@ function canAccessCase(user, item) {
     (item.splits || []).some(split => aliases.has(cleanKey(split.employee)));
 }
 
-async function requireCaseAccess(caseId, userId, res, message = "沒有權限操作這個案件") {
-  const user = await requireUser(userId, res, message);
+async function requireCaseAccess(caseId, userId, token, res, message = "沒有權限操作這個案件") {
+  const user = await requireUser(userId, token, res, message);
   if (!user) return null;
   const found = await pool.query("SELECT * FROM studio_cases WHERE id = $1", [caseId]);
   if (!found.rows[0]) {
@@ -392,7 +434,7 @@ app.get("/api/health", async (_req, res) => {
 app.get("/api/cases", async (_req, res, next) => {
   try {
     const { rows } = await pool.query("SELECT * FROM studio_cases ORDER BY created_at DESC");
-    const user = await requireUser(_req.query.requesterId, res, "沒有權限讀取案件");
+    const user = await requireUser(_req.query.requesterId, requestToken(_req), res, "沒有權限讀取案件");
     if (!user) return;
     if (user.is_boss) {
       res.json(rows.map(toCase));
@@ -420,7 +462,7 @@ app.post("/api/login", async (req, res, next) => {
       res.status(401).json({ error: "帳號或密碼不正確，請再試一次。" });
       return;
     }
-    res.json(toUser(user));
+    res.json({ ...toUser(user), token: createSessionToken(user) });
   } catch (error) {
     next(error);
   }
@@ -428,7 +470,7 @@ app.post("/api/login", async (req, res, next) => {
 
 app.get("/api/users", async (_req, res, next) => {
   try {
-    if (!(await requireBoss(_req.query.requesterId, res, "只有老闆可以讀取員工帳號"))) return;
+    if (!(await requireBoss(_req.query.requesterId, requestToken(_req), res, "只有老闆可以讀取員工帳號"))) return;
     const { rows } = await pool.query("SELECT * FROM studio_users ORDER BY is_boss DESC, display_name");
     res.json(rows.map(toUser));
   } catch (error) {
@@ -439,7 +481,7 @@ app.get("/api/users", async (_req, res, next) => {
 app.post("/api/users", async (req, res, next) => {
   try {
     const body = req.body || {};
-    if (!(await requireBoss(body.requesterId, res, "只有老闆可以新增員工帳號"))) return;
+    if (!(await requireBoss(body.requesterId, requestToken(req), res, "只有老闆可以新增員工帳號"))) return;
 
     const email = cleanEmail(body.email);
     const displayName = cleanText(body.displayName);
@@ -481,7 +523,7 @@ app.patch("/api/users/:id/work-types", async (req, res, next) => {
       return;
     }
 
-    const requester = await requireUser(requesterId, res, "沒有權限更新工作項目");
+    const requester = await requireUser(requesterId, requestToken(req), res, "沒有權限更新工作項目");
     if (!requester) return;
     if (!requester.is_boss && requesterId !== targetId) {
       res.status(403).json({ error: "沒有權限更新工作項目" });
@@ -516,7 +558,7 @@ app.patch("/api/users/:id/base-salary", async (req, res, next) => {
       return;
     }
 
-    if (!(await requireBoss(requesterId, res, "只有老闆可以更新固定月薪"))) return;
+    if (!(await requireBoss(requesterId, requestToken(req), res, "只有老闆可以更新固定月薪"))) return;
 
     const { rows } = await pool.query(
       `UPDATE studio_users
@@ -551,7 +593,7 @@ app.patch("/api/users/:id/password", async (req, res, next) => {
       return;
     }
 
-    const requester = await requireUser(requesterId, res, "沒有權限更新這個密碼");
+    const requester = await requireUser(requesterId, requestToken(req), res, "沒有權限更新這個密碼");
     if (!requester) return;
     if (!requester.is_boss && requesterId !== targetId) {
       res.status(403).json({ error: "沒有權限更新這個密碼" });
@@ -572,7 +614,9 @@ app.patch("/api/users/:id/password", async (req, res, next) => {
       res.status(404).json({ error: "找不到使用者" });
       return;
     }
-    res.json(toUser(rows[0]));
+    const updatedUser = toUser(rows[0]);
+    if (requesterId === targetId) updatedUser.token = createSessionToken(rows[0]);
+    res.json(updatedUser);
   } catch (error) {
     next(error);
   }
@@ -580,7 +624,7 @@ app.patch("/api/users/:id/password", async (req, res, next) => {
 
 app.get("/api/company-records", async (_req, res, next) => {
   try {
-    if (!(await requireBoss(_req.query.requesterId, res, "只有老闆可以讀取行政紀錄"))) return;
+    if (!(await requireBoss(_req.query.requesterId, requestToken(_req), res, "只有老闆可以讀取行政紀錄"))) return;
     const { rows } = await pool.query("SELECT * FROM studio_company_records ORDER BY occurred_on DESC, created_at DESC");
     res.json(rows.map(toCompanyRecord));
   } catch (error) {
@@ -590,7 +634,7 @@ app.get("/api/company-records", async (_req, res, next) => {
 
 app.get("/api/expense-claims", async (req, res, next) => {
   try {
-    const user = await requireUser(req.query.requesterId, res, "沒有權限讀取報帳");
+    const user = await requireUser(req.query.requesterId, requestToken(req), res, "沒有權限讀取報帳");
     if (!user) return;
 
     const query = user.is_boss
@@ -606,7 +650,7 @@ app.get("/api/expense-claims", async (req, res, next) => {
 app.post("/api/expense-claims", async (req, res, next) => {
   try {
     const body = req.body || {};
-    const user = await requireUser(body.requesterId, res, "沒有權限新增報帳");
+    const user = await requireUser(body.requesterId, requestToken(req), res, "沒有權限新增報帳");
     if (!user) return;
 
     const itemName = cleanText(body.itemName);
@@ -635,7 +679,7 @@ app.post("/api/expense-claims", async (req, res, next) => {
 
 app.get("/api/payment-schedules", async (req, res, next) => {
   try {
-    if (!(await requireBoss(req.query.requesterId, res, "只有老闆可以讀取收款排程"))) return;
+    if (!(await requireBoss(req.query.requesterId, requestToken(req), res, "只有老闆可以讀取收款排程"))) return;
     const { rows } = await pool.query("SELECT * FROM studio_payment_schedules ORDER BY due_date ASC, id ASC");
     res.json(rows.map(toPaymentSchedule));
   } catch (error) {
@@ -646,7 +690,7 @@ app.get("/api/payment-schedules", async (req, res, next) => {
 app.post("/api/payment-schedules", async (req, res, next) => {
   try {
     const body = req.body || {};
-    if (!(await requireBoss(body.requesterId, res, "只有老闆可以新增收款排程"))) return;
+    if (!(await requireBoss(body.requesterId, requestToken(req), res, "只有老闆可以新增收款排程"))) return;
     const title = cleanText(body.title);
     const caseId = cleanText(body.caseId);
     const dueDate = cleanText(body.dueDate);
@@ -678,7 +722,7 @@ app.post("/api/payment-schedules", async (req, res, next) => {
 app.patch("/api/payment-schedules/:id", async (req, res, next) => {
   try {
     const body = req.body || {};
-    if (!(await requireBoss(body.requesterId, res, "只有老闆可以更新收款排程"))) return;
+    if (!(await requireBoss(body.requesterId, requestToken(req), res, "只有老闆可以更新收款排程"))) return;
     const status = receivableStatuses.has(body.status) ? body.status : "未收";
     const method = paymentMethods.has(body.method) ? body.method : "現金";
     const paidDate = status === "已收" ? (cleanText(body.paidDate) || new Date().toISOString().slice(0, 10)) : null;
@@ -705,7 +749,7 @@ app.patch("/api/payment-schedules/:id", async (req, res, next) => {
 
 app.delete("/api/payment-schedules/:id", async (req, res, next) => {
   try {
-    if (!(await requireBoss(req.body?.requesterId, res, "只有老闆可以刪除收款排程"))) return;
+    if (!(await requireBoss(req.body?.requesterId, requestToken(req), res, "只有老闆可以刪除收款排程"))) return;
     await pool.query("DELETE FROM studio_payment_schedules WHERE id = $1", [req.params.id]);
     res.status(204).end();
   } catch (error) {
@@ -716,7 +760,7 @@ app.delete("/api/payment-schedules/:id", async (req, res, next) => {
 app.post("/api/company-records", async (req, res, next) => {
   try {
     const body = req.body || {};
-    if (!(await requireBoss(body.requesterId, res, "只有老闆可以新增行政紀錄"))) return;
+    if (!(await requireBoss(body.requesterId, requestToken(req), res, "只有老闆可以新增行政紀錄"))) return;
     if (!recordKinds.has(body.kind)) {
       res.status(400).json({ error: "紀錄類型不正確" });
       return;
@@ -742,7 +786,7 @@ app.post("/api/company-records", async (req, res, next) => {
 
 app.delete("/api/company-records/:id", async (req, res, next) => {
   try {
-    if (!(await requireBoss(req.body?.requesterId, res, "只有老闆可以刪除行政紀錄"))) return;
+    if (!(await requireBoss(req.body?.requesterId, requestToken(req), res, "只有老闆可以刪除行政紀錄"))) return;
     await pool.query("DELETE FROM studio_company_records WHERE id = $1", [req.params.id]);
     res.status(204).end();
   } catch (error) {
@@ -753,7 +797,7 @@ app.delete("/api/company-records/:id", async (req, res, next) => {
 app.post("/api/cases", async (req, res, next) => {
   try {
     const body = req.body || {};
-    if (!(await requireBoss(body.requesterId, res, "只有老闆可以建立案件"))) return;
+    if (!(await requireBoss(body.requesterId, requestToken(req), res, "只有老闆可以建立案件"))) return;
     if (!body.name || !body.type || !body.client || !body.owner || !body.start || !body.due) {
       res.status(400).json({ error: "缺少必要欄位" });
       return;
@@ -813,8 +857,8 @@ app.patch("/api/cases/:id/status", async (req, res, next) => {
       return;
     }
     if (req.body.status === "需修改") {
-      if (!(await requireBoss(req.body?.requesterId, res, "只有老闆可以標記需修改"))) return;
-    } else if (!(await requireCaseAccess(req.params.id, req.body?.requesterId, res, "沒有權限更新案件狀態"))) {
+      if (!(await requireBoss(req.body?.requesterId, requestToken(req), res, "只有老闆可以標記需修改"))) return;
+    } else if (!(await requireCaseAccess(req.params.id, req.body?.requesterId, requestToken(req), res, "沒有權限更新案件狀態"))) {
       return;
     }
     const { rows } = await pool.query(
@@ -833,7 +877,7 @@ app.patch("/api/cases/:id/status", async (req, res, next) => {
 
 app.patch("/api/cases/:id/review", async (req, res, next) => {
   try {
-    if (!(await requireBoss(req.body?.requesterId, res, "只有老闆可以更新驗收建議"))) return;
+    if (!(await requireBoss(req.body?.requesterId, requestToken(req), res, "只有老闆可以更新驗收建議"))) return;
 
     const reviewNotes = cleanText(req.body?.reviewNotes);
     const { rows } = await pool.query(
@@ -857,7 +901,7 @@ app.patch("/api/cases/:id/review", async (req, res, next) => {
 
 app.patch("/api/cases/:id/notes", async (req, res, next) => {
   try {
-    if (!(await requireBoss(req.body?.requesterId, res, "只有老闆可以更新案件備註"))) return;
+    if (!(await requireBoss(req.body?.requesterId, requestToken(req), res, "只有老闆可以更新案件備註"))) return;
 
     const { rows } = await pool.query(
       `UPDATE studio_cases
@@ -879,7 +923,7 @@ app.patch("/api/cases/:id/notes", async (req, res, next) => {
 
 app.patch("/api/cases/:id/owner", async (req, res, next) => {
   try {
-    if (!(await requireBoss(req.body?.requesterId, res, "只有老闆可以更新案件負責人"))) return;
+    if (!(await requireBoss(req.body?.requesterId, requestToken(req), res, "只有老闆可以更新案件負責人"))) return;
     const owner = cleanText(req.body?.owner);
     if (!owner) {
       res.status(400).json({ error: "請選擇案件負責人" });
@@ -908,7 +952,7 @@ app.patch("/api/cases/:id/checklist", async (req, res, next) => {
   try {
     const index = Number(req.body?.index);
     const checked = Boolean(req.body?.checked);
-    const access = await requireCaseAccess(req.params.id, req.body?.requesterId, res, "沒有權限更新 Checklist");
+    const access = await requireCaseAccess(req.params.id, req.body?.requesterId, requestToken(req), res, "沒有權限更新 Checklist");
     if (!access) return;
     const item = access.item;
     if (!Number.isInteger(index) || index < 0 || index >= item.checklist.length) {
@@ -929,7 +973,7 @@ app.patch("/api/cases/:id/checklist", async (req, res, next) => {
 
 app.patch("/api/cases/:id/delivery", async (req, res, next) => {
   try {
-    const access = await requireCaseAccess(req.params.id, req.body?.requesterId, res, "沒有權限更新交付資訊");
+    const access = await requireCaseAccess(req.params.id, req.body?.requesterId, requestToken(req), res, "沒有權限更新交付資訊");
     if (!access) return;
     const current = access.item;
     const driveFolderUrl = cleanUrl(req.body?.driveFolderUrl);
@@ -960,7 +1004,7 @@ app.patch("/api/cases/:id/delivery", async (req, res, next) => {
 
 app.delete("/api/cases/:id", async (req, res, next) => {
   try {
-    if (!(await requireBoss(req.body?.requesterId, res, "只有老闆可以刪除案件"))) return;
+    if (!(await requireBoss(req.body?.requesterId, requestToken(req), res, "只有老闆可以刪除案件"))) return;
     await pool.query("DELETE FROM studio_cases WHERE id = $1", [req.params.id]);
     res.status(204).end();
   } catch (error) {
