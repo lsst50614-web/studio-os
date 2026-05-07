@@ -595,8 +595,8 @@ app.patch("/api/users/:id/password", async (req, res, next) => {
 
     const requester = await requireUser(requesterId, requestToken(req), res, "沒有權限更新這個密碼");
     if (!requester) return;
-    if (!requester.is_boss && requesterId !== targetId) {
-      res.status(403).json({ error: "沒有權限更新這個密碼" });
+    if (!requester.is_boss) {
+      res.status(403).json({ error: "只有老闆可以重設密碼" });
       return;
     }
 
