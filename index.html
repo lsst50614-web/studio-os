@@ -923,7 +923,7 @@
       try {
         const [cases, records, expenses, payments] = await Promise.all([
           api(`/api/cases?requesterId=${state.user.id}`),
-          state.user.isBoss ? api("/api/company-records") : Promise.resolve([]),
+          state.user.isBoss ? api(`/api/company-records?requesterId=${state.user.id}`) : Promise.resolve([]),
           api(`/api/expense-claims?requesterId=${state.user.id}`),
           state.user.isBoss ? api(`/api/payment-schedules?requesterId=${state.user.id}`) : Promise.resolve([])
         ]);
@@ -1125,15 +1125,26 @@
       return `<div class="panel"><p class="muted">${text}</p></div>`;
     }
 
+    function localDateString(date = new Date()) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+
+    function localMonthString(date = new Date()) {
+      return localDateString(date).slice(0, 7);
+    }
+
     function monthlyPettyCash() {
-      const month = new Date().toISOString().slice(0, 7);
+      const month = localMonthString();
       return state.records
         .filter(record => record.kind === "零用金" && record.paymentStatus === "已支出" && String(record.date).startsWith(month))
         .reduce((sum, record) => sum + Number(record.amount || 0), 0);
     }
 
     function pendingPettyCash() {
-      const month = new Date().toISOString().slice(0, 7);
+      const month = localMonthString();
       return state.records
         .filter(record => record.kind === "零用金" && record.paymentStatus === "未支出" && String(record.date).startsWith(month))
         .reduce((sum, record) => sum + Number(record.amount || 0), 0);
@@ -1144,7 +1155,7 @@
     }
 
     function paymentSummary(payments = state.payments) {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = localDateString();
       return {
         totalDue: payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0),
         paid: payments.filter(payment => payment.status === "已收").reduce((sum, payment) => sum + Number(payment.amount || 0), 0),
@@ -1530,7 +1541,7 @@
           <button class="primary" type="submit">建立案件</button>
         </form>
       `;
-      document.querySelector("#start").value = new Date().toISOString().slice(0, 10);
+      document.querySelector("#start").value = localDateString();
       document.querySelector("#owner").addEventListener("change", event => {
         const firstSplitEmployee = document.querySelector("[data-split-employee]");
         const caseType = document.querySelector("#caseType").value;
@@ -1563,6 +1574,7 @@
         }))
         .filter(split => split.employee && split.value > 0);
       const payload = {
+        requesterId: state.user.id,
         name: document.querySelector("#caseName").value.trim(),
         type,
         client: document.querySelector("#client").value.trim(),
@@ -1642,7 +1654,7 @@
           ${state.expenses.length ? renderExpenseRows() : emptyPanel("目前沒有員工報帳。")}
         </div>
       `;
-      document.querySelector("#recordDate").value = new Date().toISOString().slice(0, 10);
+      document.querySelector("#recordDate").value = localDateString();
     }
 
     function renderExpense() {
@@ -1658,7 +1670,7 @@
           ${state.expenses.length ? renderExpenseRows() : emptyPanel("目前沒有報帳紀錄。")}
         </div>
       `;
-      document.querySelector("#expensePurchaseDate").value = new Date().toISOString().slice(0, 10);
+      document.querySelector("#expensePurchaseDate").value = localDateString();
     }
 
     function renderPasswordPanel() {
@@ -1834,6 +1846,7 @@
     async function createCompanyRecord(event) {
       event.preventDefault();
       const payload = {
+        requesterId: state.user.id,
         role: state.user.isBoss ? "owner" : "staff",
         kind: document.querySelector("#recordKind").value,
         title: document.querySelector("#recordTitle").value.trim(),
@@ -1853,7 +1866,10 @@
     async function deleteCompanyRecord(id) {
       await api(`/api/company-records/${id}`, {
         method: "DELETE",
-        body: JSON.stringify({ role: state.user.isBoss ? "owner" : "staff" })
+        body: JSON.stringify({
+          requesterId: state.user.id,
+          role: state.user.isBoss ? "owner" : "staff"
+        })
       });
       state.records = state.records.filter(record => String(record.id) !== String(id));
       renderApp();
@@ -1987,7 +2003,7 @@
               <div class="field"><label for="quickMethod">收款方式</label><select id="quickMethod"><option>現金</option><option>轉帳</option><option>Line Pay</option><option>其他</option></select></div>
             </div>
             <div class="grid metrics">
-              <div class="field"><label for="quickFirstDate">第一期日期</label><input id="quickFirstDate" type="date" value="${new Date().toISOString().slice(0, 10)}"></div>
+              <div class="field"><label for="quickFirstDate">第一期日期</label><input id="quickFirstDate" type="date" value="${localDateString()}"></div>
               <div class="field"><label for="quickFirstStatus">第一期狀態</label><select id="quickFirstStatus"><option>已收</option><option>未收</option></select></div>
             </div>
             <div class="grid metrics">
@@ -2130,7 +2146,7 @@
     async function updateChecklist(id, index, checked) {
       const item = await api(`/api/cases/${id}/checklist`, {
         method: "PATCH",
-        body: JSON.stringify({ index, checked })
+        body: JSON.stringify({ requesterId: state.user.id, index, checked })
       });
       state.cases = state.cases.map(entry => entry.id === id ? item : entry);
       openCase(id);
@@ -2140,7 +2156,11 @@
     async function updateStatus(id, status) {
       const item = await api(`/api/cases/${id}/status`, {
         method: "PATCH",
-        body: JSON.stringify({ status, role: state.user.isBoss ? "owner" : "staff" })
+        body: JSON.stringify({
+          requesterId: state.user.id,
+          status,
+          role: state.user.isBoss ? "owner" : "staff"
+        })
       });
       state.cases = state.cases.map(entry => entry.id === id ? item : entry);
       renderApp();
@@ -2152,6 +2172,7 @@
       const item = await api(`/api/cases/${id}/review`, {
         method: "PATCH",
         body: JSON.stringify({
+          requesterId: state.user.id,
           role: state.user.isBoss ? "owner" : "staff",
           reviewNotes: document.querySelector("#modalReviewNotes").value.trim()
         })
@@ -2167,6 +2188,7 @@
       const item = await api(`/api/cases/${id}/notes`, {
         method: "PATCH",
         body: JSON.stringify({
+          requesterId: state.user.id,
           role: state.user.isBoss ? "owner" : "staff",
           notes: document.querySelector("#modalCaseNotes").value.trim()
         })
@@ -2198,6 +2220,7 @@
       const item = await api(`/api/cases/${id}/delivery`, {
         method: "PATCH",
         body: JSON.stringify({
+          requesterId: state.user.id,
           driveFolderUrl: document.querySelector("#modalDriveFolderUrl").value.trim(),
           sourceMaterialUrl: document.querySelector("#modalSourceMaterialUrl").value.trim(),
           deliveryUrl: document.querySelector("#modalDeliveryUrl").value.trim(),
@@ -2276,7 +2299,7 @@
         body: JSON.stringify({
           requesterId: state.user.id,
           status,
-          paidDate: status === "已收" ? new Date().toISOString().slice(0, 10) : "",
+          paidDate: status === "已收" ? localDateString() : "",
           method: existing?.method || "現金",
           notes: existing?.notes || ""
         })
@@ -2298,7 +2321,10 @@
     }
 
     async function deleteCase(id) {
-      await api(`/api/cases/${id}`, { method: "DELETE" });
+      await api(`/api/cases/${id}`, {
+        method: "DELETE",
+        body: JSON.stringify({ requesterId: state.user.id })
+      });
       state.cases = state.cases.filter(item => item.id !== id);
       closeModal();
       renderApp();
