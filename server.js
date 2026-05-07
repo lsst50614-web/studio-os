@@ -318,13 +318,57 @@ function toPaymentSchedule(row) {
   };
 }
 
-async function requireBoss(userId, res, message = "只有老闆可以操作") {
-  const requester = await pool.query("SELECT is_boss FROM studio_users WHERE id = $1", [Number(userId)]);
-  if (!requester.rows[0]?.is_boss) {
+async function getRequester(userId) {
+  const id = Number(userId);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  const requester = await pool.query("SELECT * FROM studio_users WHERE id = $1", [id]);
+  return requester.rows[0] || null;
+}
+
+async function requireUser(userId, res, message = "沒有權限操作") {
+  const user = await getRequester(userId);
+  if (!user) {
     res.status(403).json({ error: message });
-    return false;
+    return null;
   }
-  return true;
+  return user;
+}
+
+async function requireBoss(userId, res, message = "只有老闆可以操作") {
+  const user = await requireUser(userId, res, message);
+  if (!user) return null;
+  if (!user.is_boss) {
+    res.status(403).json({ error: message });
+    return null;
+  }
+  return user;
+}
+
+function userAliases(user) {
+  return new Set([user.display_name, user.email, user.role].map(cleanKey).filter(Boolean));
+}
+
+function canAccessCase(user, item) {
+  if (user.is_boss) return true;
+  const aliases = userAliases(user);
+  return aliases.has(cleanKey(item.owner)) ||
+    (item.splits || []).some(split => aliases.has(cleanKey(split.employee)));
+}
+
+async function requireCaseAccess(caseId, userId, res, message = "沒有權限操作這個案件") {
+  const user = await requireUser(userId, res, message);
+  if (!user) return null;
+  const found = await pool.query("SELECT * FROM studio_cases WHERE id = $1", [caseId]);
+  if (!found.rows[0]) {
+    res.status(404).json({ error: "找不到案件" });
+    return null;
+  }
+  const item = toCase(found.rows[0]);
+  if (!canAccessCase(user, item)) {
+    res.status(403).json({ error: message });
+    return null;
+  }
+  return { user, item };
 }
 
 async function nextCaseId() {
@@ -348,30 +392,14 @@ app.get("/api/health", async (_req, res) => {
 app.get("/api/cases", async (_req, res, next) => {
   try {
     const { rows } = await pool.query("SELECT * FROM studio_cases ORDER BY created_at DESC");
-    const requesterId = Number(_req.query.requesterId);
-    if (!requesterId) {
-      res.json(rows.map(toCase));
-      return;
-    }
-
-    const requester = await pool.query("SELECT * FROM studio_users WHERE id = $1", [requesterId]);
-    const user = requester.rows[0];
-    if (!user) {
-      res.status(403).json({ error: "沒有權限讀取案件" });
-      return;
-    }
+    const user = await requireUser(_req.query.requesterId, res, "沒有權限讀取案件");
+    if (!user) return;
     if (user.is_boss) {
       res.json(rows.map(toCase));
       return;
     }
 
-    const aliases = new Set([user.display_name, user.email, user.role].map(cleanKey).filter(Boolean));
-    res.json(rows
-      .map(toCase)
-      .filter(item =>
-        aliases.has(cleanKey(item.owner)) ||
-        (item.splits || []).some(split => aliases.has(cleanKey(split.employee)))
-      ));
+    res.json(rows.map(toCase).filter(item => canAccessCase(user, item)));
   } catch (error) {
     next(error);
   }
@@ -400,12 +428,7 @@ app.post("/api/login", async (req, res, next) => {
 
 app.get("/api/users", async (_req, res, next) => {
   try {
-    const requesterId = Number(_req.query.requesterId);
-    const requester = await pool.query("SELECT is_boss FROM studio_users WHERE id = $1", [requesterId]);
-    if (!requester.rows[0]?.is_boss) {
-      res.status(403).json({ error: "只有老闆可以讀取員工帳號" });
-      return;
-    }
+    if (!(await requireBoss(_req.query.requesterId, res, "只有老闆可以讀取員工帳號"))) return;
     const { rows } = await pool.query("SELECT * FROM studio_users ORDER BY is_boss DESC, display_name");
     res.json(rows.map(toUser));
   } catch (error) {
@@ -416,11 +439,7 @@ app.get("/api/users", async (_req, res, next) => {
 app.post("/api/users", async (req, res, next) => {
   try {
     const body = req.body || {};
-    const requester = await pool.query("SELECT is_boss FROM studio_users WHERE id = $1", [Number(body.requesterId)]);
-    if (!requester.rows[0]?.is_boss) {
-      res.status(403).json({ error: "只有老闆可以新增員工帳號" });
-      return;
-    }
+    if (!(await requireBoss(body.requesterId, res, "只有老闆可以新增員工帳號"))) return;
 
     const email = cleanEmail(body.email);
     const displayName = cleanText(body.displayName);
@@ -457,13 +476,14 @@ app.patch("/api/users/:id/work-types", async (req, res, next) => {
     const requesterId = Number(body.requesterId);
     const targetId = Number(req.params.id);
     const selected = Array.isArray(body.workTypes) ? body.workTypes.filter(item => workTypes.has(item)) : [];
-    if (!targetId || !requesterId) {
+    if (!Number.isInteger(targetId) || targetId <= 0 || !Number.isInteger(requesterId) || requesterId <= 0) {
       res.status(400).json({ error: "缺少使用者資訊" });
       return;
     }
 
-    const requester = await pool.query("SELECT * FROM studio_users WHERE id = $1", [requesterId]);
-    if (!requester.rows[0] || (!requester.rows[0].is_boss && requesterId !== targetId)) {
+    const requester = await requireUser(requesterId, res, "沒有權限更新工作項目");
+    if (!requester) return;
+    if (!requester.is_boss && requesterId !== targetId) {
       res.status(403).json({ error: "沒有權限更新工作項目" });
       return;
     }
@@ -491,16 +511,12 @@ app.patch("/api/users/:id/base-salary", async (req, res, next) => {
     const body = req.body || {};
     const requesterId = Number(body.requesterId);
     const targetId = Number(req.params.id);
-    if (!targetId || !requesterId) {
+    if (!Number.isInteger(targetId) || targetId <= 0 || !Number.isInteger(requesterId) || requesterId <= 0) {
       res.status(400).json({ error: "缺少使用者資訊" });
       return;
     }
 
-    const requester = await pool.query("SELECT * FROM studio_users WHERE id = $1", [requesterId]);
-    if (!requester.rows[0]?.is_boss) {
-      res.status(403).json({ error: "只有老闆可以更新固定月薪" });
-      return;
-    }
+    if (!(await requireBoss(requesterId, res, "只有老闆可以更新固定月薪"))) return;
 
     const { rows } = await pool.query(
       `UPDATE studio_users
@@ -526,7 +542,7 @@ app.patch("/api/users/:id/password", async (req, res, next) => {
     const requesterId = Number(body.requesterId);
     const targetId = Number(req.params.id);
     const password = String(body.password || "");
-    if (!targetId || !requesterId) {
+    if (!Number.isInteger(targetId) || targetId <= 0 || !Number.isInteger(requesterId) || requesterId <= 0) {
       res.status(400).json({ error: "缺少使用者資訊" });
       return;
     }
@@ -535,8 +551,9 @@ app.patch("/api/users/:id/password", async (req, res, next) => {
       return;
     }
 
-    const requester = await pool.query("SELECT * FROM studio_users WHERE id = $1", [requesterId]);
-    if (!requester.rows[0] || (!requester.rows[0].is_boss && requesterId !== targetId)) {
+    const requester = await requireUser(requesterId, res, "沒有權限更新這個密碼");
+    if (!requester) return;
+    if (!requester.is_boss && requesterId !== targetId) {
       res.status(403).json({ error: "沒有權限更新這個密碼" });
       return;
     }
@@ -563,6 +580,7 @@ app.patch("/api/users/:id/password", async (req, res, next) => {
 
 app.get("/api/company-records", async (_req, res, next) => {
   try {
+    if (!(await requireBoss(_req.query.requesterId, res, "只有老闆可以讀取行政紀錄"))) return;
     const { rows } = await pool.query("SELECT * FROM studio_company_records ORDER BY occurred_on DESC, created_at DESC");
     res.json(rows.map(toCompanyRecord));
   } catch (error) {
@@ -572,16 +590,12 @@ app.get("/api/company-records", async (_req, res, next) => {
 
 app.get("/api/expense-claims", async (req, res, next) => {
   try {
-    const requesterId = Number(req.query.requesterId);
-    const requester = await pool.query("SELECT * FROM studio_users WHERE id = $1", [requesterId]);
-    if (!requester.rows[0]) {
-      res.status(403).json({ error: "沒有權限讀取報帳" });
-      return;
-    }
+    const user = await requireUser(req.query.requesterId, res, "沒有權限讀取報帳");
+    if (!user) return;
 
-    const query = requester.rows[0].is_boss
+    const query = user.is_boss
       ? ["SELECT * FROM studio_expense_claims ORDER BY purchased_at DESC, created_at DESC", []]
-      : ["SELECT * FROM studio_expense_claims WHERE user_id = $1 ORDER BY purchased_at DESC, created_at DESC", [requesterId]];
+      : ["SELECT * FROM studio_expense_claims WHERE user_id = $1 ORDER BY purchased_at DESC, created_at DESC", [user.id]];
     const { rows } = await pool.query(query[0], query[1]);
     res.json(rows.map(toExpenseClaim));
   } catch (error) {
@@ -592,12 +606,8 @@ app.get("/api/expense-claims", async (req, res, next) => {
 app.post("/api/expense-claims", async (req, res, next) => {
   try {
     const body = req.body || {};
-    const requesterId = Number(body.requesterId);
-    const requester = await pool.query("SELECT * FROM studio_users WHERE id = $1", [requesterId]);
-    if (!requester.rows[0]) {
-      res.status(403).json({ error: "沒有權限新增報帳" });
-      return;
-    }
+    const user = await requireUser(body.requesterId, res, "沒有權限新增報帳");
+    if (!user) return;
 
     const itemName = cleanText(body.itemName);
     const purchaseDate = cleanText(body.purchaseDate);
@@ -615,7 +625,7 @@ app.post("/api/expense-claims", async (req, res, next) => {
       `INSERT INTO studio_expense_claims (user_id, employee_name, item_name, purchased_at, receipt_image)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
-      [requesterId, requester.rows[0].display_name, itemName, purchaseDate, receiptImage]
+      [user.id, user.display_name, itemName, purchaseDate, receiptImage]
     );
     res.status(201).json(toExpenseClaim(rows[0]));
   } catch (error) {
@@ -706,10 +716,7 @@ app.delete("/api/payment-schedules/:id", async (req, res, next) => {
 app.post("/api/company-records", async (req, res, next) => {
   try {
     const body = req.body || {};
-    if (body.role !== "owner") {
-      res.status(403).json({ error: "只有老闆可以新增行政紀錄" });
-      return;
-    }
+    if (!(await requireBoss(body.requesterId, res, "只有老闆可以新增行政紀錄"))) return;
     if (!recordKinds.has(body.kind)) {
       res.status(400).json({ error: "紀錄類型不正確" });
       return;
@@ -735,10 +742,7 @@ app.post("/api/company-records", async (req, res, next) => {
 
 app.delete("/api/company-records/:id", async (req, res, next) => {
   try {
-    if (req.body?.role !== "owner") {
-      res.status(403).json({ error: "只有老闆可以刪除行政紀錄" });
-      return;
-    }
+    if (!(await requireBoss(req.body?.requesterId, res, "只有老闆可以刪除行政紀錄"))) return;
     await pool.query("DELETE FROM studio_company_records WHERE id = $1", [req.params.id]);
     res.status(204).end();
   } catch (error) {
@@ -749,10 +753,7 @@ app.delete("/api/company-records/:id", async (req, res, next) => {
 app.post("/api/cases", async (req, res, next) => {
   try {
     const body = req.body || {};
-    if (body.role !== "owner") {
-      res.status(403).json({ error: "只有老闆可以建立案件" });
-      return;
-    }
+    if (!(await requireBoss(body.requesterId, res, "只有老闆可以建立案件"))) return;
     if (!body.name || !body.type || !body.client || !body.owner || !body.start || !body.due) {
       res.status(400).json({ error: "缺少必要欄位" });
       return;
@@ -811,8 +812,9 @@ app.patch("/api/cases/:id/status", async (req, res, next) => {
       res.status(400).json({ error: "案件狀態不正確" });
       return;
     }
-    if (req.body.status === "需修改" && req.body.role !== "owner") {
-      res.status(403).json({ error: "只有老闆可以標記需修改" });
+    if (req.body.status === "需修改") {
+      if (!(await requireBoss(req.body?.requesterId, res, "只有老闆可以標記需修改"))) return;
+    } else if (!(await requireCaseAccess(req.params.id, req.body?.requesterId, res, "沒有權限更新案件狀態"))) {
       return;
     }
     const { rows } = await pool.query(
@@ -831,10 +833,7 @@ app.patch("/api/cases/:id/status", async (req, res, next) => {
 
 app.patch("/api/cases/:id/review", async (req, res, next) => {
   try {
-    if (req.body?.role !== "owner") {
-      res.status(403).json({ error: "只有老闆可以更新驗收建議" });
-      return;
-    }
+    if (!(await requireBoss(req.body?.requesterId, res, "只有老闆可以更新驗收建議"))) return;
 
     const reviewNotes = cleanText(req.body?.reviewNotes);
     const { rows } = await pool.query(
@@ -858,10 +857,7 @@ app.patch("/api/cases/:id/review", async (req, res, next) => {
 
 app.patch("/api/cases/:id/notes", async (req, res, next) => {
   try {
-    if (req.body?.role !== "owner") {
-      res.status(403).json({ error: "只有老闆可以更新案件備註" });
-      return;
-    }
+    if (!(await requireBoss(req.body?.requesterId, res, "只有老闆可以更新案件備註"))) return;
 
     const { rows } = await pool.query(
       `UPDATE studio_cases
@@ -883,12 +879,7 @@ app.patch("/api/cases/:id/notes", async (req, res, next) => {
 
 app.patch("/api/cases/:id/owner", async (req, res, next) => {
   try {
-    const requesterId = Number(req.body?.requesterId);
-    const requester = await pool.query("SELECT is_boss FROM studio_users WHERE id = $1", [requesterId]);
-    if (!requester.rows[0]?.is_boss) {
-      res.status(403).json({ error: "只有老闆可以更新案件負責人" });
-      return;
-    }
+    if (!(await requireBoss(req.body?.requesterId, res, "只有老闆可以更新案件負責人"))) return;
     const owner = cleanText(req.body?.owner);
     if (!owner) {
       res.status(400).json({ error: "請選擇案件負責人" });
@@ -917,13 +908,9 @@ app.patch("/api/cases/:id/checklist", async (req, res, next) => {
   try {
     const index = Number(req.body?.index);
     const checked = Boolean(req.body?.checked);
-    const found = await pool.query("SELECT * FROM studio_cases WHERE id = $1", [req.params.id]);
-    if (!found.rows[0]) {
-      res.status(404).json({ error: "找不到案件" });
-      return;
-    }
-
-    const item = toCase(found.rows[0]);
+    const access = await requireCaseAccess(req.params.id, req.body?.requesterId, res, "沒有權限更新 Checklist");
+    if (!access) return;
+    const item = access.item;
     if (!Number.isInteger(index) || index < 0 || index >= item.checklist.length) {
       res.status(400).json({ error: "Checklist 項目不正確" });
       return;
@@ -942,13 +929,9 @@ app.patch("/api/cases/:id/checklist", async (req, res, next) => {
 
 app.patch("/api/cases/:id/delivery", async (req, res, next) => {
   try {
-    const found = await pool.query("SELECT * FROM studio_cases WHERE id = $1", [req.params.id]);
-    if (!found.rows[0]) {
-      res.status(404).json({ error: "找不到案件" });
-      return;
-    }
-
-    const current = toCase(found.rows[0]);
+    const access = await requireCaseAccess(req.params.id, req.body?.requesterId, res, "沒有權限更新交付資訊");
+    if (!access) return;
+    const current = access.item;
     const driveFolderUrl = cleanUrl(req.body?.driveFolderUrl);
     const sourceMaterialUrl = cleanUrl(req.body?.sourceMaterialUrl);
     const deliveryUrl = cleanUrl(req.body?.deliveryUrl);
@@ -977,6 +960,7 @@ app.patch("/api/cases/:id/delivery", async (req, res, next) => {
 
 app.delete("/api/cases/:id", async (req, res, next) => {
   try {
+    if (!(await requireBoss(req.body?.requesterId, res, "只有老闆可以刪除案件"))) return;
     await pool.query("DELETE FROM studio_cases WHERE id = $1", [req.params.id]);
     res.status(204).end();
   } catch (error) {
