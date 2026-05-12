@@ -751,6 +751,7 @@
       "非員工錄音室租借": ["時段確認", "設備確認", "進場", "使用完成", "場地復原", "結案"],
       "Podcast 錄音": ["錄音時段確認", "設備與麥克風確認", "錄音 Session", "檔案備份", "初步檢查", "交件"],
       "Podcast 剪輯": ["素材接收", "內容整理", "剪輯粗修", "降噪與音量平衡", "客戶確認", "交件"],
+      "Podcast 月結剪輯": ["頻道與月份確認", "錄音完成", "素材接收", "剪輯完成", "交付確認", "10號月結"],
       "員工錄音室租借": ["時段確認", "設備確認", "錄音使用", "檔案整理", "場地復原", "結案"],
       "歌唱課": ["學生需求確認", "上課時段確認", "歌唱課執行", "課後建議", "費用確認", "結案"],
       "編曲課": ["學生需求確認", "上課時段確認", "編曲課執行", "作業 / 檔案確認", "費用確認", "結案"]
@@ -758,6 +759,8 @@
 
     const workOptions = Object.keys(caseTypes);
     const staffSelfWorkOptions = ["員工錄音室租借", "歌唱課", "編曲課"];
+    const podcastMonthlyType = "Podcast 月結剪輯";
+    const podcastDefaultEditFee = 800;
 
     const state = {
       user: null,
@@ -1393,6 +1396,10 @@
       return ["錄音", "非員工錄音室租借", "Podcast 錄音", "員工錄音室租借", "歌唱課", "編曲課"].includes(type);
     }
 
+    function isPodcastMonthlyCase(type) {
+      return type === podcastMonthlyType;
+    }
+
     function renderHourlyPanel() {
       return `
         <div id="hourlyPanel" class="rental-panel hidden">
@@ -1418,6 +1425,32 @@
             <div class="field"><label for="hourlyRate">每小時金額</label><input id="hourlyRate" type="number" min="0" inputmode="numeric" value="0"></div>
           </div>
           <p class="small">如果要 7/3 拆，分潤方式選百分比並填 70；前員工帶單選項會自動幫你填第一筆 70%。</p>
+        </div>
+      `;
+    }
+
+    function renderPodcastPanel() {
+      return `
+        <div id="podcastPanel" class="rental-panel hidden">
+          <div class="split">
+            <h3>Podcast 月結</h3>
+            <span class="small">10 號前結算剪輯費</span>
+          </div>
+          <div class="grid metrics">
+            <div class="field"><label for="podcastChannel">頻道名稱</label><input id="podcastChannel" placeholder="例如：晨嵐 Podcast"></div>
+            <div class="field"><label for="podcastMonth">月份</label><input id="podcastMonth" type="month"></div>
+          </div>
+          <div class="grid metrics">
+            <div class="field"><label for="podcastEpisodeName">期次 / 名稱</label><input id="podcastEpisodeName" placeholder="例如：EP12-16 或 5 月份"></div>
+            <div class="field"><label for="podcastRecordedCount">錄音集數</label><input id="podcastRecordedCount" type="number" min="0" inputmode="numeric" value="0"></div>
+          </div>
+          <div class="grid metrics">
+            <div class="field"><label for="podcastEditedCount">剪完集數</label><input id="podcastEditedCount" type="number" min="0" inputmode="numeric" value="1"></div>
+            <div class="field"><label for="podcastEditFee">每集剪輯成本</label><input id="podcastEditFee" type="number" min="0" inputmode="numeric" value="${podcastDefaultEditFee}"></div>
+          </div>
+          <div class="field"><label for="podcastRevenue">本月收款 / 報價</label><input id="podcastRevenue" type="number" min="0" inputmode="numeric" value="0"></div>
+          <p id="podcastSummary" class="small">剪完 1 集 x $800 = 員工剪輯費 $800；本月收款可另外填。</p>
+          <p class="small">進度會分成錄音完成、剪輯完成、交付確認、10號月結；員工領錢看剪完集數。</p>
         </div>
       `;
     }
@@ -1526,6 +1559,64 @@
       toggleHourly();
     }
 
+    function setupPodcastControls() {
+      const caseType = document.querySelector("#caseType");
+      const panel = document.querySelector("#podcastPanel");
+      const channel = document.querySelector("#podcastChannel");
+      const month = document.querySelector("#podcastMonth");
+      const episodeName = document.querySelector("#podcastEpisodeName");
+      const recordedCount = document.querySelector("#podcastRecordedCount");
+      const editedCount = document.querySelector("#podcastEditedCount");
+      const fee = document.querySelector("#podcastEditFee");
+      const revenue = document.querySelector("#podcastRevenue");
+      const summary = document.querySelector("#podcastSummary");
+      const quote = document.querySelector("#quote");
+      const cost = document.querySelector("#cost");
+      const caseName = document.querySelector("#caseName");
+      const client = document.querySelector("#client");
+      const owner = document.querySelector("#owner");
+      const firstSplitEmployee = document.querySelector("[data-split-employee]");
+      const firstSplitWorkType = document.querySelector("[data-split-work-type]");
+      const firstSplitMethod = document.querySelector("[data-split-method]");
+      const firstSplitValue = document.querySelector("[data-split-value]");
+      const firstSplitNote = document.querySelector("[data-split-note]");
+
+      const editCost = () => Math.round(Number(editedCount.value || 0) * Number(fee.value || 0));
+      const monthLabel = () => (month.value || localMonthString()).replace("-", "/");
+
+      const syncPodcast = () => {
+        if (!isPodcastMonthlyCase(caseType.value)) return;
+        const amount = editCost();
+        quote.value = String(Number(revenue.value || 0));
+        cost.value = String(amount);
+        summary.textContent = `錄音 ${Number(recordedCount.value || 0)} 集；剪完 ${Number(editedCount.value || 0)} 集 x ${money(Number(fee.value || 0))} = 員工剪輯費 ${money(amount)}；本月收款 ${money(Number(revenue.value || 0))}。`;
+        if (channel.value.trim() && !client.value.trim()) client.value = channel.value.trim();
+        if (!caseName.value.trim() || caseName.dataset.autoPodcastName === "true") {
+          caseName.value = `Podcast月結｜${channel.value.trim() || "頻道"}｜${monthLabel()}${episodeName.value.trim() ? `｜${episodeName.value.trim()}` : ""}`;
+          caseName.dataset.autoPodcastName = "true";
+        }
+        if (firstSplitEmployee) firstSplitEmployee.value = owner.value;
+        if (firstSplitWorkType) firstSplitWorkType.value = podcastMonthlyType;
+        if (firstSplitMethod) firstSplitMethod.value = "固定金額";
+        if (firstSplitValue) firstSplitValue.value = String(amount);
+        if (firstSplitNote) firstSplitNote.value = `Podcast 月結剪輯，剪完 ${Number(editedCount.value || 0)} 集 x ${money(Number(fee.value || 0))}，10號前結算`;
+      };
+
+      const togglePodcast = () => {
+        const enabled = isPodcastMonthlyCase(caseType.value);
+        panel.classList.toggle("hidden", !enabled);
+        if (enabled && !month.value) month.value = localMonthString();
+        if (enabled) syncPodcast();
+      };
+
+      [channel, month, episodeName, recordedCount, editedCount, fee, revenue, owner].forEach(input => input.addEventListener("input", syncPodcast));
+      caseType.addEventListener("change", togglePodcast);
+      caseName.addEventListener("input", () => {
+        caseName.dataset.autoPodcastName = "false";
+      });
+      togglePodcast();
+    }
+
     function renderNewCase() {
       if (!state.user.isBoss) {
         state.page = "home";
@@ -1544,6 +1635,7 @@
             <div class="field"><label for="due">截止日期</label><input id="due" type="date" required></div>
           </div>
           <div class="field"><label for="status">案件狀態</label><select id="status">${statusOptions("新接案").map(status => `<option>${status}</option>`).join("")}</select></div>
+          ${renderPodcastPanel()}
           ${renderHourlyPanel()}
           <div class="field ${canSeeMoney ? "" : "hidden"}"><label for="quote">報價金額</label><input id="quote" type="number" min="0" inputmode="numeric" value="0"></div>
           <div class="field ${canSeeMoney ? "" : "hidden"}"><label for="cost">預估成本</label><input id="cost" type="number" min="0" inputmode="numeric" value="0"></div>
@@ -1558,9 +1650,10 @@
       document.querySelector("#owner").addEventListener("change", event => {
         const firstSplitEmployee = document.querySelector("[data-split-employee]");
         const caseType = document.querySelector("#caseType").value;
-        if (firstSplitEmployee && (["歌唱課", "編曲課"].includes(caseType) || !firstSplitEmployee.value)) firstSplitEmployee.value = event.target.value;
+        if (firstSplitEmployee && (["歌唱課", "編曲課", podcastMonthlyType].includes(caseType) || !firstSplitEmployee.value)) firstSplitEmployee.value = event.target.value;
       });
       setupHourlyControls();
+      setupPodcastControls();
     }
 
     function addSplitRow() {
@@ -1577,6 +1670,18 @@
     async function createCase(event) {
       event.preventDefault();
       const type = document.querySelector("#caseType").value;
+      let notes = document.querySelector("#notes").value.trim();
+      if (isPodcastMonthlyCase(type)) {
+        const channel = document.querySelector("#podcastChannel").value.trim();
+        const month = document.querySelector("#podcastMonth").value;
+        const episodeName = document.querySelector("#podcastEpisodeName").value.trim();
+        const recordedCount = Number(document.querySelector("#podcastRecordedCount").value || 0);
+        const editedCount = Number(document.querySelector("#podcastEditedCount").value || 0);
+        const fee = Number(document.querySelector("#podcastEditFee").value || 0);
+        const revenue = Number(document.querySelector("#podcastRevenue").value || 0);
+        const podcastNote = `Podcast 月結：${channel || "未填頻道"} / ${month || localMonthString()} / ${episodeName || "未填期次"} / 錄音 ${recordedCount} 集 / 剪完 ${editedCount} 集 x ${money(fee)} = 剪輯成本 ${money(editedCount * fee)} / 本月收款 ${money(revenue)} / 10號前結算。`;
+        notes = notes ? `${notes}\n${podcastNote}` : podcastNote;
+      }
       const splits = [...document.querySelectorAll("[data-split-row]")]
         .map(row => ({
           employee: row.querySelector("[data-split-employee]").value,
@@ -1600,7 +1705,7 @@
         rentalPricingNote: isHourlyCase(type) ? document.querySelector("#hourlyPricingPreset").selectedOptions[0].textContent : "",
         status: document.querySelector("#status").value,
         role: state.user.isBoss ? "owner" : "staff",
-        notes: document.querySelector("#notes").value.trim(),
+        notes,
         driveFolderUrl: document.querySelector("#driveFolderUrl").value.trim(),
         sourceMaterialUrl: document.querySelector("#sourceMaterialUrl").value.trim(),
         splits
@@ -1696,20 +1801,20 @@
     }
 
     function renderWorkTypesPanel() {
-      const selected = new Set(state.user.workTypes || []);
+      const allowed = (state.user.workTypes || []).filter(type => staffSelfWorkOptions.includes(type));
       return `
-        <div class="section-title"><h3>我的本月工作</h3></div>
-        <form id="workTypesForm" class="panel">
-          <div class="checklist">
-            ${staffSelfWorkOptions.map(type => `
-              <label class="check-item">
-                <input type="checkbox" name="workType" value="${esc(type)}" ${selected.has(type) ? "checked" : ""}>
-                <span>${esc(type)}</span>
-              </label>
-            `).join("")}
-          </div>
-          <button class="primary" type="submit">更新本月工作</button>
-        </form>
+        <div class="section-title"><h3>我的可登記服務</h3></div>
+        <div class="panel">
+          ${allowed.length ? `
+            <div class="checklist">
+              ${allowed.map(type => `
+                <div class="check-item">
+                  <span>${esc(type)}</span>
+                </div>
+              `).join("")}
+            </div>
+          ` : `<p class="muted">目前沒有開放自行登記的服務；正式案件會由老闆建立後分配到你的案件頁。</p>`}
+        </div>
       `;
     }
 
@@ -1723,6 +1828,20 @@
           </div>
           <strong>${user.isBoss ? "老闆" : "員工"}</strong>
           ${user.isBoss ? "" : `
+            <form class="delivery-form" data-work-types-for="${user.id}">
+              <div class="field">
+                <label>可登記服務</label>
+                <div class="checklist">
+                  ${staffSelfWorkOptions.map(type => `
+                    <label class="check-item">
+                      <input type="checkbox" name="workType" value="${esc(type)}" ${(user.workTypes || []).includes(type) ? "checked" : ""}>
+                      <span>${esc(type)}</span>
+                    </label>
+                  `).join("")}
+                </div>
+              </div>
+              <button class="ghost" type="submit">更新服務</button>
+            </form>
             <form class="delivery-form" data-base-salary-for="${user.id}">
               <div class="field"><label>固定月薪</label><input type="number" name="baseSalary" min="0" inputmode="numeric" value="${Number(user.baseSalary || 0)}"></div>
               <button class="ghost" type="submit">更新月薪</button>
@@ -1790,6 +1909,22 @@
         }))
       });
       state.users = state.users.map(item => item.id === user.id ? user : item);
+      renderApp();
+    }
+
+    async function updateEmployeeWorkTypes(event) {
+      event.preventDefault();
+      const form = event.target;
+      const employeeId = form.dataset.workTypesFor;
+      const selected = [...form.querySelectorAll("input[name='workType']:checked")].map(input => input.value);
+      const user = await api(`/api/users/${employeeId}/work-types`, {
+        method: "PATCH",
+        body: JSON.stringify(authPayload({
+          workTypes: selected
+        }))
+      });
+      state.users = state.users.map(item => item.id === user.id ? user : item);
+      alert("員工可登記服務已更新。");
       renderApp();
     }
 
@@ -2398,9 +2533,9 @@
       if (event.target.id === "caseForm") createCase(event).catch(error => alert(error.message));
       if (event.target.id === "companyRecordForm") createCompanyRecord(event).catch(error => alert(error.message));
       if (event.target.id === "userForm") createUser(event).catch(error => alert(error.message));
+      if (event.target.matches("[data-work-types-for]")) updateEmployeeWorkTypes(event).catch(error => alert(error.message));
       if (event.target.matches("[data-base-salary-for]")) updateEmployeeBaseSalary(event).catch(error => alert(error.message));
       if (event.target.matches("[data-reset-password-for]")) resetEmployeePassword(event).catch(error => alert(error.message));
-      if (event.target.id === "workTypesForm") updateWorkTypes(event).catch(error => alert(error.message));
       if (event.target.id === "passwordForm") updateMyPassword(event).catch(error => alert(error.message));
       if (event.target.id === "expenseForm") createExpense(event).catch(error => alert(error.message));
       if (event.target.id === "reviewForm") updateReview(event).catch(error => alert(error.message));

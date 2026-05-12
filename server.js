@@ -24,6 +24,7 @@ const caseTypes = {
   "非員工錄音室租借": ["時段確認", "設備確認", "進場", "使用完成", "場地復原", "結案"],
   "Podcast 錄音": ["錄音時段確認", "設備與麥克風確認", "錄音 Session", "檔案備份", "初步檢查", "交件"],
   "Podcast 剪輯": ["素材接收", "內容整理", "剪輯粗修", "降噪與音量平衡", "客戶確認", "交件"],
+  "Podcast 月結剪輯": ["頻道與月份確認", "錄音完成", "素材接收", "剪輯完成", "交付確認", "10號月結"],
   "員工錄音室租借": ["時段確認", "設備確認", "錄音使用", "檔案整理", "場地復原", "結案"],
   "歌唱課": ["學生需求確認", "上課時段確認", "歌唱課執行", "課後建議", "費用確認", "結案"],
   "編曲課": ["學生需求確認", "上課時段確認", "編曲課執行", "作業 / 檔案確認", "費用確認", "結案"]
@@ -525,8 +526,8 @@ app.patch("/api/users/:id/work-types", async (req, res, next) => {
 
     const requester = await requireUser(requesterId, requestToken(req), res, "沒有權限更新工作項目");
     if (!requester) return;
-    if (!requester.is_boss && requesterId !== targetId) {
-      res.status(403).json({ error: "沒有權限更新工作項目" });
+    if (!requester.is_boss) {
+      res.status(403).json({ error: "只有老闆可以設定員工服務" });
       return;
     }
 
