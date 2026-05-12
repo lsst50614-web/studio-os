@@ -789,8 +789,11 @@
       records: [],
       expenses: [],
       payments: [],
+      historicalRevenues: [],
       users: [],
       studioExpenseModel: defaultStudioExpenseModel,
+      revenueQuery: "",
+      revenueStatus: "all",
       loading: false,
       apiError: ""
     };
@@ -958,18 +961,20 @@
       state.apiError = "";
       renderApp();
       try {
-        const [cases, records, expenses, payments, studioExpenseModel] = await Promise.all([
+        const [cases, records, expenses, payments, studioExpenseModel, historicalRevenues] = await Promise.all([
           api(`/api/cases?${authQuery()}`),
           state.user.isBoss ? api(`/api/company-records?${authQuery()}`) : Promise.resolve([]),
           api(`/api/expense-claims?${authQuery()}`),
           state.user.isBoss ? api(`/api/payment-schedules?${authQuery()}`) : Promise.resolve([]),
-          state.user.isBoss ? api(`/api/studio-expense-model?${authQuery()}`) : Promise.resolve(defaultStudioExpenseModel)
+          state.user.isBoss ? api(`/api/studio-expense-model?${authQuery()}`) : Promise.resolve(defaultStudioExpenseModel),
+          state.user.isBoss ? api(`/api/historical-revenues?${authQuery()}`) : Promise.resolve([])
         ]);
         state.cases = cases;
         state.records = records;
         state.expenses = expenses;
         state.payments = payments;
         state.studioExpenseModel = studioExpenseModel;
+        state.historicalRevenues = historicalRevenues;
         if (state.user.isBoss) state.users = await api(`/api/users?${authQuery()}`);
       } catch (error) {
         state.apiError = error.message;
@@ -977,6 +982,7 @@
         state.records = [];
         state.expenses = [];
         state.payments = [];
+        state.historicalRevenues = [];
         state.users = [];
         state.studioExpenseModel = defaultStudioExpenseModel;
       } finally {
@@ -1061,6 +1067,7 @@
         items.push({ key: "company", label: "行政", icon: "clipboard" });
         items.push({ key: "finance", label: "財務", icon: "chart" });
         items.push({ key: "studioExpenses", label: "支出", icon: "receipt" });
+        items.push({ key: "historicalRevenue", label: "營收", icon: "chart" });
       } else {
         items.push({ key: "expense", label: "報帳", icon: "receipt" });
       }
@@ -1093,7 +1100,7 @@
       if (!state.user) return;
       if (!state.user.isBoss && !["home", "cases", "calendar", "expense"].includes(state.page)) state.page = "home";
       renderNav();
-      const titleMap = { home: "首頁", cases: "案件管理", calendar: "行事曆", new: "新增案件", company: "行政", finance: "財務", studioExpenses: "工作室支出統計", expense: "報帳" };
+      const titleMap = { home: "首頁", cases: "案件管理", calendar: "行事曆", new: "新增案件", company: "行政", finance: "財務", studioExpenses: "工作室支出統計", historicalRevenue: "晨嵐歷史營收管理", expense: "報帳" };
       els.pageTitle.textContent = titleMap[state.page];
       els.eyebrow.textContent = state.user.isBoss ? "老闆視角" : "";
       els.logoutBtn.innerHTML = `<span>${state.user.icon}</span><span>登出</span>`;
@@ -1112,6 +1119,7 @@
       if (state.page === "company") renderCompany();
       if (state.page === "finance") renderFinance();
       if (state.page === "studioExpenses") renderStudioExpenses();
+      if (state.page === "historicalRevenue") renderHistoricalRevenue();
       if (state.page === "expense") renderExpense();
     }
 
@@ -2076,6 +2084,169 @@
       renderApp();
     }
 
+    async function createHistoricalRevenue(event) {
+      event.preventDefault();
+      const revenue = await api("/api/historical-revenues", {
+        method: "POST",
+        body: JSON.stringify(authPayload({
+          clientName: document.querySelector("#historyClientName").value.trim(),
+          phone: document.querySelector("#historyPhone").value.trim(),
+          projectName: document.querySelector("#historyProjectName").value.trim(),
+          totalAmount: Number(document.querySelector("#historyTotalAmount").value || 0),
+          receivedAmount: Number(document.querySelector("#historyReceivedAmount").value || 0),
+          projectDate: document.querySelector("#historyProjectDate").value,
+          status: document.querySelector("#historyStatus").value,
+          note: document.querySelector("#historyNote").value.trim()
+        }))
+      });
+      state.historicalRevenues.unshift(revenue);
+      event.target.reset();
+      document.querySelector("#historyProjectDate").value = localDateString();
+      renderApp();
+    }
+
+    function revenueStatusText(status) {
+      return status === "ongoing" ? "製作中" : "已結案";
+    }
+
+    function visibleHistoricalRevenues() {
+      const query = cleanKey(state.revenueQuery);
+      return state.historicalRevenues.filter(item => {
+        const statusMatch = state.revenueStatus === "all" || item.status === state.revenueStatus;
+        const text = cleanKey(`${item.clientName} ${item.phone} ${item.projectName} ${item.note}`);
+        return statusMatch && (!query || text.includes(query));
+      });
+    }
+
+    function historicalRevenueStats(items = state.historicalRevenues) {
+      return {
+        total: items.reduce((sum, item) => sum + Number(item.totalAmount || 0), 0),
+        received: items.reduce((sum, item) => sum + Number(item.receivedAmount || 0), 0),
+        unpaid: items.reduce((sum, item) => sum + Number(item.unpaidAmount || 0), 0),
+        completed: items.filter(item => item.status === "completed").length,
+        ongoing: items.filter(item => item.status === "ongoing").length
+      };
+    }
+
+    function yearlyRevenueRows(items = state.historicalRevenues) {
+      const map = new Map();
+      items.forEach(item => {
+        const year = String(item.projectDate || "").slice(0, 4) || "未填年份";
+        const row = map.get(year) || { year, total: 0, received: 0, unpaid: 0, count: 0 };
+        row.total += Number(item.totalAmount || 0);
+        row.received += Number(item.receivedAmount || 0);
+        row.unpaid += Number(item.unpaidAmount || 0);
+        row.count += 1;
+        map.set(year, row);
+      });
+      return [...map.values()].sort((a, b) => String(b.year).localeCompare(String(a.year)));
+    }
+
+    function clientRevenueRows(items = state.historicalRevenues) {
+      const map = new Map();
+      items.forEach(item => {
+        const key = `${item.clientName}|${item.phone}`;
+        const row = map.get(key) || { clientName: item.clientName, phone: item.phone, total: 0, received: 0, unpaid: 0, count: 0 };
+        row.total += Number(item.totalAmount || 0);
+        row.received += Number(item.receivedAmount || 0);
+        row.unpaid += Number(item.unpaidAmount || 0);
+        row.count += 1;
+        map.set(key, row);
+      });
+      return [...map.values()].sort((a, b) => b.total - a.total).slice(0, 8);
+    }
+
+    function renderHistoricalRevenue() {
+      if (!state.user.isBoss) {
+        state.page = "home";
+        renderApp();
+        return;
+      }
+      const items = visibleHistoricalRevenues();
+      const allStats = historicalRevenueStats();
+      const filteredStats = historicalRevenueStats(items);
+      const statusFilters = [
+        ["all", "全部"],
+        ["completed", "已結案"],
+        ["ongoing", "製作中"]
+      ];
+      els.viewRoot.innerHTML = `
+        <div class="panel">
+          <h3>晨嵐歷史營收管理</h3>
+          <p class="muted">這裡只放晨嵐音樂正式簽約案件的歷史營收，獨立於目前案件現金流與工作室支出統計。這些收入不分給合夥人。</p>
+        </div>
+        <div class="grid metrics">
+          <div class="metric"><span>歷史總營收</span><b>${money(allStats.total)}</b></div>
+          <div class="metric"><span>已收款</span><b>${money(allStats.received)}</b></div>
+          <div class="metric"><span>未收款</span><b>${money(allStats.unpaid)}</b></div>
+          <div class="metric"><span>已結案</span><b>${allStats.completed}</b></div>
+          <div class="metric"><span>製作中</span><b>${allStats.ongoing}</b></div>
+        </div>
+        <div class="field">
+          <label for="revenueSearch">搜尋客戶 / 電話 / 案件</label>
+          <input id="revenueSearch" value="${esc(state.revenueQuery)}" placeholder="輸入客戶名稱、電話或案件名稱">
+        </div>
+        <div class="filter-row">
+          ${statusFilters.map(([key, label]) => `<button class="chip ${state.revenueStatus === key ? "active" : ""}" type="button" data-revenue-status="${key}">${label}</button>`).join("")}
+        </div>
+        <div class="grid metrics">
+          <div class="metric"><span>篩選總額</span><b>${money(filteredStats.total)}</b></div>
+          <div class="metric"><span>篩選已收</span><b>${money(filteredStats.received)}</b></div>
+          <div class="metric"><span>篩選未收</span><b>${money(filteredStats.unpaid)}</b></div>
+        </div>
+        <div class="section-title"><h3>歷年營收統計</h3></div>
+        <div class="grid">
+          ${yearlyRevenueRows().map(row => `
+            <div class="finance-row">
+              <div class="split"><h3>${esc(row.year)}</h3><strong>${money(row.total)}</strong></div>
+              <p class="small">${row.count} 件 · 已收 ${money(row.received)} · 未收 ${money(row.unpaid)}</p>
+            </div>
+          `).join("")}
+        </div>
+        <div class="section-title"><h3>客戶總消費金額</h3></div>
+        <div class="grid">
+          ${clientRevenueRows().map(row => `
+            <div class="finance-row">
+              <div class="split"><h3>${esc(row.clientName)}</h3><strong>${money(row.total)}</strong></div>
+              <p class="small">${esc(row.phone || "未填電話")} · ${row.count} 件 · 已收 ${money(row.received)} · 未收 ${money(row.unpaid)}</p>
+            </div>
+          `).join("")}
+        </div>
+        <div class="section-title"><h3>案件列表</h3><strong>${items.length} 件</strong></div>
+        <div class="grid">
+          ${items.length ? items.map(item => `
+            <div class="finance-row">
+              <div class="split"><h3>${esc(item.clientName)}</h3><span class="badge status-${item.status === "ongoing" ? "製作中" : "已完成"}">${revenueStatusText(item.status)}</span></div>
+              <p class="small">${esc(item.projectDate)} · ${esc(item.phone || "未填電話")}</p>
+              <p class="muted">${esc(item.projectName)}</p>
+              <div class="split"><span>總金額</span><strong>${money(item.totalAmount)}</strong></div>
+              <div class="split"><span>已收款</span><strong>${money(item.receivedAmount)}</strong></div>
+              <div class="split"><span>未收款</span><strong>${money(item.unpaidAmount)}</strong></div>
+              ${item.note ? `<p class="small">${esc(item.note)}</p>` : ""}
+            </div>
+          `).join("") : emptyPanel("目前沒有符合條件的歷史營收。")}
+        </div>
+        <div class="section-title"><h3>新增歷史營收</h3></div>
+        <form id="historicalRevenueForm" class="panel">
+          <div class="grid metrics">
+            <div class="field"><label for="historyClientName">客戶名稱</label><input id="historyClientName" required></div>
+            <div class="field"><label for="historyPhone">電話</label><input id="historyPhone" inputmode="tel"></div>
+          </div>
+          <div class="field"><label for="historyProjectName">案件名稱</label><input id="historyProjectName" required></div>
+          <div class="grid metrics">
+            <div class="field"><label for="historyProjectDate">日期</label><input id="historyProjectDate" type="date" required value="${localDateString()}"></div>
+            <div class="field"><label for="historyStatus">狀態</label><select id="historyStatus"><option value="completed">已結案</option><option value="ongoing">製作中</option></select></div>
+          </div>
+          <div class="grid metrics">
+            <div class="field"><label for="historyTotalAmount">總金額</label><input id="historyTotalAmount" type="number" min="0" inputmode="numeric" value="0"></div>
+            <div class="field"><label for="historyReceivedAmount">已收款</label><input id="historyReceivedAmount" type="number" min="0" inputmode="numeric" value="0"></div>
+          </div>
+          <div class="field"><label for="historyNote">備註</label><textarea id="historyNote" placeholder="付款狀態、合約資訊、補充說明"></textarea></div>
+          <button class="primary" type="submit">新增營收案件</button>
+        </form>
+      `;
+    }
+
     function renderFinance() {
       const total = state.cases.reduce((sum, item) => sum + item.quote, 0);
       const paymentStats = paymentSummary();
@@ -2703,6 +2874,26 @@
       if (installmentBtn) {
         createInstallmentSchedules(installmentBtn.dataset.createInstallments).catch(error => alert(error.message));
       }
+
+      const revenueStatusBtn = event.target.closest("[data-revenue-status]");
+      if (revenueStatusBtn) {
+        state.revenueStatus = revenueStatusBtn.dataset.revenueStatus;
+        renderHistoricalRevenue();
+      }
+    });
+
+    document.addEventListener("input", event => {
+      if (event.target.id === "revenueSearch") {
+        state.revenueQuery = event.target.value;
+        renderHistoricalRevenue();
+        requestAnimationFrame(() => {
+          const input = document.querySelector("#revenueSearch");
+          if (input) {
+            input.focus();
+            input.setSelectionRange(input.value.length, input.value.length);
+          }
+        });
+      }
     });
 
     document.addEventListener("change", event => {
@@ -2724,6 +2915,7 @@
       if (event.target.id === "caseForm") createCase(event).catch(error => alert(error.message));
       if (event.target.id === "companyRecordForm") createCompanyRecord(event).catch(error => alert(error.message));
       if (event.target.id === "studioExpenseForm") updateStudioExpenseModel(event).catch(error => alert(error.message));
+      if (event.target.id === "historicalRevenueForm") createHistoricalRevenue(event).catch(error => alert(error.message));
       if (event.target.id === "userForm") createUser(event).catch(error => alert(error.message));
       if (event.target.matches("[data-work-types-for]")) updateEmployeeWorkTypes(event).catch(error => alert(error.message));
       if (event.target.matches("[data-base-salary-for]")) updateEmployeeBaseSalary(event).catch(error => alert(error.message));

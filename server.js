@@ -64,6 +64,38 @@ const defaultStudioExpenseModel = {
   ]
 };
 
+const defaultHistoricalRevenues = [
+  { clientName: "蘇柏瑋", phone: "0978577783", projectName: "寶貝電影案件", totalAmount: 150000, receivedAmount: 150000, projectDate: "2023-10-26", status: "completed", note: "" },
+  { clientName: "蘇柏瑋", phone: "0978577783", projectName: "愛一把槍電影案件", totalAmount: 200000, receivedAmount: 200000, projectDate: "2022-09-27", status: "completed", note: "" },
+  { clientName: "江紀蓁", phone: "0970125762", projectName: "單曲製作案電影案件", totalAmount: 30000, receivedAmount: 30000, projectDate: "2026-01-07", status: "completed", note: "" },
+  { clientName: "興儒補習班(莊閔淇)", phone: "0905230918", projectName: "翻唱製作案件", totalAmount: 30000, receivedAmount: 30000, projectDate: "2026-02-02", status: "completed", note: "" },
+  { clientName: "黃芷榕", phone: "0970240899", projectName: "翻唱製作案件", totalAmount: 20000, receivedAmount: 20000, projectDate: "2025-11-29", status: "completed", note: "" },
+  { clientName: "蔣亞恩", phone: "0933107051", projectName: "翻唱製作案件", totalAmount: 30000, receivedAmount: 30000, projectDate: "2025-11-29", status: "completed", note: "" },
+  { clientName: "安赫", phone: "0979037138", projectName: "單曲different timeline製作案件", totalAmount: 30000, receivedAmount: 30000, projectDate: "2024-06-10", status: "completed", note: "" },
+  { clientName: "謝易恩", phone: "0906461530", projectName: "中央大學錄混編製作案件", totalAmount: 35000, receivedAmount: 35000, projectDate: "2021-03-09", status: "completed", note: "" },
+  { clientName: "吳銘松", phone: "0932640463", projectName: "影像配樂製作案件", totalAmount: 30000, receivedAmount: 30000, projectDate: "2020-09-03", status: "completed", note: "" },
+  { clientName: "蔡羿庠", phone: "0906111082", projectName: "饒舌kala製作案件", totalAmount: 8000, receivedAmount: 8000, projectDate: "2019-07-06", status: "completed", note: "" },
+  { clientName: "有藝思娛樂有限公司(慕辰灝)", phone: "0961016652", projectName: "boyfriend錄混編製作案件", totalAmount: 30000, receivedAmount: 30000, projectDate: "2020-09-03", status: "completed", note: "" },
+  { clientName: "有藝思娛樂有限公司(慕辰灝)", phone: "0961016652", projectName: "strawbery錄混編製作案件", totalAmount: 30000, receivedAmount: 30000, projectDate: "2020-09-03", status: "completed", note: "" },
+  { clientName: "李狐", phone: "0973605657", projectName: "編曲製作案件(誰的明天)", totalAmount: 30000, receivedAmount: 30000, projectDate: "2020-11-05", status: "completed", note: "" },
+  { clientName: "江欽源", phone: "0922554215", projectName: "編錄混製作案件", totalAmount: 50000, receivedAmount: 50000, projectDate: "2020-06-14", status: "completed", note: "" },
+  { clientName: "興儒補習班(莊閔淇)", phone: "0905230918", projectName: "翻唱製作案件", totalAmount: 15000, receivedAmount: 15000, projectDate: "2024-08-08", status: "completed", note: "" },
+  { clientName: "林暐庭", phone: "0979918629", projectName: "單曲全製作案件", totalAmount: 80000, receivedAmount: 80000, projectDate: "2023-11-13", status: "completed", note: "" },
+  { clientName: "鼎倫國際有限公司", phone: "03-4921199", projectName: "單曲全製作案件", totalAmount: 120000, receivedAmount: 120000, projectDate: "2021-01-04", status: "completed", note: "" },
+  { clientName: "吳惟聖", phone: "0910877619", projectName: "單曲製作案件", totalAmount: 30000, receivedAmount: 30000, projectDate: "2023-01-13", status: "completed", note: "" },
+  { clientName: "廖晏均", phone: "0930093516", projectName: "編錄混製作案件", totalAmount: 25000, receivedAmount: 25000, projectDate: "2022-10-15", status: "completed", note: "" },
+  { clientName: "徐愛婷", phone: "0972255477", projectName: "翻唱製作案件", totalAmount: 25000, receivedAmount: 25000, projectDate: "2023-06-20", status: "completed", note: "" },
+  { clientName: "安赫", phone: "0979037138", projectName: "單曲MeTime製作案件", totalAmount: 30000, receivedAmount: 30000, projectDate: "2023-09-17", status: "completed", note: "" },
+  { clientName: "吳詠淇", phone: "0989200629", projectName: "單曲製作案件", totalAmount: 30000, receivedAmount: 30000, projectDate: "2024-09-02", status: "completed", note: "" },
+  { clientName: "昱驊養生瑜珈中心", phone: "03-4258711", projectName: "影像配樂製作案件", totalAmount: 35000, receivedAmount: 35000, projectDate: "2024-09-06", status: "completed", note: "" },
+  { clientName: "林昱茹", phone: "0975914563", projectName: "錄混編案件", totalAmount: 6000, receivedAmount: 2000, projectDate: "2026-05-04", status: "ongoing", note: "" },
+  { clientName: "吳沛容", phone: "098627960", projectName: "3首單曲製作案件", totalAmount: 120000, receivedAmount: 100000, projectDate: "2025-12-12", status: "ongoing", note: "" },
+  { clientName: "吳沛容", phone: "098627960", projectName: "1首單曲製作案件", totalAmount: 40000, receivedAmount: 20000, projectDate: "2025-12-29", status: "ongoing", note: "" },
+  { clientName: "吳沛容", phone: "098627960", projectName: "1首單曲製作案件", totalAmount: 40000, receivedAmount: 20000, projectDate: "2026-01-05", status: "ongoing", note: "" },
+  { clientName: "傅羿寧", phone: "0909608218", projectName: "1首單曲製作案件", totalAmount: 160000, receivedAmount: 100000, projectDate: "2025-04-20", status: "ongoing", note: "" },
+  { clientName: "安赫", phone: "0979037138", projectName: "單曲Moonbound製作案件", totalAmount: 30000, receivedAmount: 20000, projectDate: "2024-06-10", status: "ongoing", note: "" }
+];
+
 app.use(express.json({ limit: "6mb" }));
 app.use((req, res, next) => {
   if (req.path === "/" || req.path.endsWith(".html") || req.path.startsWith("/api/")) {
@@ -150,6 +182,47 @@ async function initDb() {
      ON CONFLICT (key) DO NOTHING`,
     [JSON.stringify(defaultStudioExpenseModel)]
   );
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS studio_historical_revenues (
+      id SERIAL PRIMARY KEY,
+      client_name TEXT NOT NULL,
+      phone TEXT NOT NULL DEFAULT '',
+      project_name TEXT NOT NULL,
+      total_amount INTEGER NOT NULL DEFAULT 0,
+      received_amount INTEGER NOT NULL DEFAULT 0,
+      unpaid_amount INTEGER NOT NULL DEFAULT 0,
+      project_date DATE NOT NULL,
+      status TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
+  const { rows: revenueCountRows } = await pool.query("SELECT COUNT(*)::int AS count FROM studio_historical_revenues");
+  if (revenueCountRows[0].count === 0) {
+    for (const item of defaultHistoricalRevenues) {
+      const total = cleanNumber(item.totalAmount);
+      const received = cleanNumber(item.receivedAmount);
+      await pool.query(
+        `INSERT INTO studio_historical_revenues
+          (client_name, phone, project_name, total_amount, received_amount, unpaid_amount, project_date, status, note)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [
+          cleanText(item.clientName),
+          cleanText(item.phone),
+          cleanText(item.projectName),
+          total,
+          received,
+          Math.max(0, total - received),
+          item.projectDate,
+          item.status,
+          cleanText(item.note)
+        ]
+      );
+    }
+  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS studio_users (
@@ -379,6 +452,22 @@ function toCompanyRecord(row) {
     paymentStatus: row.kind === "零用金" ? (row.payment_status || "已支出") : "不適用",
     date: row.occurred_on instanceof Date ? row.occurred_on.toISOString().slice(0, 10) : row.occurred_on,
     notes: row.notes || "",
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at
+  };
+}
+
+function toHistoricalRevenue(row) {
+  return {
+    id: row.id,
+    clientName: row.client_name,
+    phone: row.phone || "",
+    projectName: row.project_name,
+    totalAmount: Number(row.total_amount || 0),
+    receivedAmount: Number(row.received_amount || 0),
+    unpaidAmount: Number(row.unpaid_amount || 0),
+    projectDate: row.project_date instanceof Date ? row.project_date.toISOString().slice(0, 10) : row.project_date,
+    status: row.status,
+    note: row.note || "",
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at
   };
 }
@@ -718,6 +807,54 @@ app.put("/api/studio-expense-model", async (req, res, next) => {
       [JSON.stringify(model)]
     );
     res.json(normalizeStudioExpenseModel(rows[0].value));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/historical-revenues", async (req, res, next) => {
+  try {
+    if (!(await requireBoss(req.query.requesterId, requestToken(req), res, "只有老闆可以讀取晨嵐歷史營收"))) return;
+    const { rows } = await pool.query("SELECT * FROM studio_historical_revenues ORDER BY project_date DESC, id DESC");
+    res.json(rows.map(toHistoricalRevenue));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/historical-revenues", async (req, res, next) => {
+  try {
+    if (!(await requireBoss(req.body?.requesterId, requestToken(req), res, "只有老闆可以新增晨嵐歷史營收"))) return;
+    const body = req.body || {};
+    const clientName = cleanText(body.clientName);
+    const projectName = cleanText(body.projectName);
+    const projectDate = cleanText(body.projectDate);
+    const status = body.status === "ongoing" ? "ongoing" : "completed";
+    if (!clientName || !projectName || !projectDate) {
+      res.status(400).json({ error: "請填寫客戶名稱、案件名稱與日期" });
+      return;
+    }
+    const total = cleanNumber(body.totalAmount);
+    const received = cleanNumber(body.receivedAmount);
+    const unpaid = Math.max(0, total - received);
+    const { rows } = await pool.query(
+      `INSERT INTO studio_historical_revenues
+        (client_name, phone, project_name, total_amount, received_amount, unpaid_amount, project_date, status, note)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING *`,
+      [
+        clientName,
+        cleanText(body.phone),
+        projectName,
+        total,
+        received,
+        unpaid,
+        projectDate,
+        status,
+        cleanText(body.note)
+      ]
+    );
+    res.status(201).json(toHistoricalRevenue(rows[0]));
   } catch (error) {
     next(error);
   }
