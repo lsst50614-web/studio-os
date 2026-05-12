@@ -764,6 +764,22 @@
     const staffSelfWorkOptions = ["員工錄音室租借", "歌唱課", "編曲課"];
     const podcastSingleType = "Podcast 單集製作";
     const podcastDefaultEditFee = 800;
+    const defaultStudioExpenseModel = {
+      startMonth: "2019-02",
+      endMonth: "2026-05",
+      totalMonths: 88,
+      splitRatio: { gary: 0.5, partner: 0.5 },
+      monthlyExpenses: [
+        { name: "房租", amount: 12000, type: "fixed", cycle: "monthly" },
+        { name: "電費", amount: 788, type: "fixed", cycle: "monthly_average" },
+        { name: "網路", amount: 1360, type: "fixed", cycle: "monthly" },
+        { name: "營業稅", amount: 1559, type: "fixed", cycle: "monthly_average" },
+        { name: "雜項", amount: 1040, type: "variable_average", cycle: "monthly_average" }
+      ],
+      oneTimeCosts: [
+        { name: "裝潢與工作室建置", amount: 2800000, type: "capital_expense" }
+      ]
+    };
 
     const state = {
       user: null,
@@ -774,6 +790,7 @@
       expenses: [],
       payments: [],
       users: [],
+      studioExpenseModel: defaultStudioExpenseModel,
       loading: false,
       apiError: ""
     };
@@ -941,16 +958,18 @@
       state.apiError = "";
       renderApp();
       try {
-        const [cases, records, expenses, payments] = await Promise.all([
+        const [cases, records, expenses, payments, studioExpenseModel] = await Promise.all([
           api(`/api/cases?${authQuery()}`),
           state.user.isBoss ? api(`/api/company-records?${authQuery()}`) : Promise.resolve([]),
           api(`/api/expense-claims?${authQuery()}`),
-          state.user.isBoss ? api(`/api/payment-schedules?${authQuery()}`) : Promise.resolve([])
+          state.user.isBoss ? api(`/api/payment-schedules?${authQuery()}`) : Promise.resolve([]),
+          state.user.isBoss ? api(`/api/studio-expense-model?${authQuery()}`) : Promise.resolve(defaultStudioExpenseModel)
         ]);
         state.cases = cases;
         state.records = records;
         state.expenses = expenses;
         state.payments = payments;
+        state.studioExpenseModel = studioExpenseModel;
         if (state.user.isBoss) state.users = await api(`/api/users?${authQuery()}`);
       } catch (error) {
         state.apiError = error.message;
@@ -959,6 +978,7 @@
         state.expenses = [];
         state.payments = [];
         state.users = [];
+        state.studioExpenseModel = defaultStudioExpenseModel;
       } finally {
         state.loading = false;
         renderApp();
@@ -1040,6 +1060,7 @@
         items.push({ key: "new", label: "新增", icon: "plus" });
         items.push({ key: "company", label: "行政", icon: "clipboard" });
         items.push({ key: "finance", label: "財務", icon: "chart" });
+        items.push({ key: "studioExpenses", label: "支出", icon: "receipt" });
       } else {
         items.push({ key: "expense", label: "報帳", icon: "receipt" });
       }
@@ -1072,7 +1093,7 @@
       if (!state.user) return;
       if (!state.user.isBoss && !["home", "cases", "calendar", "expense"].includes(state.page)) state.page = "home";
       renderNav();
-      const titleMap = { home: "首頁", cases: "案件管理", calendar: "行事曆", new: "新增案件", company: "行政", finance: "財務", expense: "報帳" };
+      const titleMap = { home: "首頁", cases: "案件管理", calendar: "行事曆", new: "新增案件", company: "行政", finance: "財務", studioExpenses: "工作室支出統計", expense: "報帳" };
       els.pageTitle.textContent = titleMap[state.page];
       els.eyebrow.textContent = state.user.isBoss ? "老闆視角" : "";
       els.logoutBtn.innerHTML = `<span>${state.user.icon}</span><span>登出</span>`;
@@ -1090,6 +1111,7 @@
       if (state.page === "new") renderNewCase();
       if (state.page === "company") renderCompany();
       if (state.page === "finance") renderFinance();
+      if (state.page === "studioExpenses") renderStudioExpenses();
       if (state.page === "expense") renderExpense();
     }
 
@@ -2024,6 +2046,36 @@
       renderApp();
     }
 
+    async function updateStudioExpenseModel(event) {
+      event.preventDefault();
+      const model = state.studioExpenseModel || defaultStudioExpenseModel;
+      const readRows = (rows, group) => (rows || []).map((row, index) => ({
+        name: document.querySelector(`[name='${group}Name${index}']`).value.trim() || row.name,
+        amount: Number(document.querySelector(`[name='${group}Amount${index}']`).value || 0),
+        type: document.querySelector(`[name='${group}Type${index}']`).value.trim() || row.type,
+        cycle: document.querySelector(`[name='${group}Cycle${index}']`).value.trim() || row.cycle
+      }));
+      const updated = await api("/api/studio-expense-model", {
+        method: "PUT",
+        body: JSON.stringify(authPayload({
+          model: {
+            startMonth: document.querySelector("#studioStartMonth").value,
+            endMonth: document.querySelector("#studioEndMonth").value,
+            totalMonths: Number(document.querySelector("#studioTotalMonths").value || 0),
+            splitRatio: {
+              gary: Number(document.querySelector("#studioGaryRatio").value || 0) / 100,
+              partner: Number(document.querySelector("#studioPartnerRatio").value || 0) / 100
+            },
+            monthlyExpenses: readRows(model.monthlyExpenses, "monthly"),
+            oneTimeCosts: readRows(model.oneTimeCosts, "oneTime")
+          }
+        }))
+      });
+      state.studioExpenseModel = updated;
+      alert("工作室支出統計已更新。");
+      renderApp();
+    }
+
     function renderFinance() {
       const total = state.cases.reduce((sum, item) => sum + item.quote, 0);
       const paymentStats = paymentSummary();
@@ -2079,6 +2131,123 @@
             ${(item.splits || []).length ? `<p class="small">拆帳：${item.splits.map(split => `${esc(split.employee)} ${esc(split.workType)} ${esc(splitMethodLabel(split))}`).join(" · ")}</p>` : `<p class="small">尚未設定拆帳</p>`}
           </div>`).join("") : emptyPanel()}
         </div>
+      `;
+    }
+
+    function studioExpenseSummary(model = state.studioExpenseModel) {
+      const monthlyTotal = (model.monthlyExpenses || []).reduce((sum, item) => sum + Number(item.amount || 0), 0);
+      const totalMonths = Number(model.totalMonths || 0);
+      const garyRatio = Number(model.splitRatio?.gary ?? 0.5);
+      const partnerRatio = Number(model.splitRatio?.partner ?? 0.5);
+      const totalOperatingCost = monthlyTotal * totalMonths;
+      const garyOperatingCost = Math.round(totalOperatingCost * garyRatio);
+      const partnerOperatingCost = Math.round(totalOperatingCost * partnerRatio);
+      const totalOneTimeCost = (model.oneTimeCosts || []).reduce((sum, item) => sum + Number(item.amount || 0), 0);
+      const garyOneTimeCost = Math.round(totalOneTimeCost * garyRatio);
+      const partnerOneTimeCost = Math.round(totalOneTimeCost * partnerRatio);
+      return {
+        monthlyTotal,
+        garyMonthly: Math.round(monthlyTotal * garyRatio),
+        partnerMonthly: Math.round(monthlyTotal * partnerRatio),
+        totalOperatingCost,
+        garyOperatingCost,
+        partnerOperatingCost,
+        totalOneTimeCost,
+        garyOneTimeCost,
+        partnerOneTimeCost,
+        studioTotalInvestment: totalOperatingCost + totalOneTimeCost,
+        garyTotalInvestment: garyOperatingCost + garyOneTimeCost,
+        partnerTotalInvestment: partnerOperatingCost + partnerOneTimeCost
+      };
+    }
+
+    function renderStudioExpenseRow(row, index, group) {
+      return `
+        <div class="split-row-form" data-${group}-row>
+          <div class="grid metrics">
+            <div class="field"><label>項目</label><input name="${group}Name${index}" value="${esc(row.name)}"></div>
+            <div class="field"><label>金額</label><input name="${group}Amount${index}" type="number" min="0" inputmode="numeric" value="${Number(row.amount || 0)}"></div>
+          </div>
+          <div class="grid metrics">
+            <div class="field"><label>類型</label><input name="${group}Type${index}" value="${esc(row.type || "")}"></div>
+            <div class="field"><label>週期</label><input name="${group}Cycle${index}" value="${esc(row.cycle || "")}"></div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderStudioExpenses() {
+      if (!state.user.isBoss) {
+        state.page = "home";
+        renderApp();
+        return;
+      }
+      const model = state.studioExpenseModel || defaultStudioExpenseModel;
+      const summary = studioExpenseSummary(model);
+      els.viewRoot.innerHTML = `
+        <div class="panel">
+          <h3>估算模型說明</h3>
+          <p class="muted">這裡是工作室從開店至今的營運成本與建置成本估算，不是正式會計報表，也不會影響目前 APP 的案件、收款、零用金或現金流帳。零用金是資金來源，不列入這裡的成本。</p>
+        </div>
+        <div class="section-title"><h3>月平均支出</h3><strong>${money(summary.monthlyTotal)}</strong></div>
+        <div class="grid">
+          ${(model.monthlyExpenses || []).map(item => `
+            <div class="finance-row">
+              <div class="split"><h3>${esc(item.name)}</h3><strong>${money(item.amount)}</strong></div>
+              <p class="small">${esc(item.type)} · ${esc(item.cycle)}</p>
+            </div>
+          `).join("")}
+        </div>
+        <div class="grid metrics">
+          <div class="metric"><span>月平均總支出</span><b>${money(summary.monthlyTotal)}</b></div>
+          <div class="metric"><span>Gary 月負擔</span><b>${money(summary.garyMonthly)}</b></div>
+        </div>
+        <div class="section-title"><h3>累積營運成本</h3></div>
+        <div class="grid metrics">
+          <div class="metric"><span>起算月份</span><b>${esc(model.startMonth)}</b></div>
+          <div class="metric"><span>估算到</span><b>${esc(model.endMonth)}</b></div>
+          <div class="metric"><span>統計月份</span><b>${Number(model.totalMonths || 0)} 個月</b></div>
+          <div class="metric"><span>營運成本總額</span><b>${money(summary.totalOperatingCost)}</b></div>
+          <div class="metric"><span>Gary 分攤</span><b>${money(summary.garyOperatingCost)}</b></div>
+          <div class="metric"><span>合夥人分攤</span><b>${money(summary.partnerOperatingCost)}</b></div>
+        </div>
+        <div class="section-title"><h3>建置成本</h3><strong>${money(summary.totalOneTimeCost)}</strong></div>
+        <div class="grid">
+          ${(model.oneTimeCosts || []).map(item => `
+            <div class="finance-row">
+              <div class="split"><h3>${esc(item.name)}</h3><strong>${money(item.amount)}</strong></div>
+              <p class="small">${esc(item.type)}</p>
+            </div>
+          `).join("")}
+        </div>
+        <div class="grid metrics">
+          <div class="metric"><span>建置成本總額</span><b>${money(summary.totalOneTimeCost)}</b></div>
+          <div class="metric"><span>Gary 分攤</span><b>${money(summary.garyOneTimeCost)}</b></div>
+          <div class="metric"><span>合夥人分攤</span><b>${money(summary.partnerOneTimeCost)}</b></div>
+        </div>
+        <div class="section-title"><h3>總投入估算</h3><strong>${money(summary.studioTotalInvestment)}</strong></div>
+        <div class="grid metrics">
+          <div class="metric"><span>工作室總投入</span><b>${money(summary.studioTotalInvestment)}</b></div>
+          <div class="metric"><span>Gary 總投入</span><b>${money(summary.garyTotalInvestment)}</b></div>
+          <div class="metric"><span>合夥人總投入</span><b>${money(summary.partnerTotalInvestment)}</b></div>
+        </div>
+        <div class="section-title"><h3>修改估算設定</h3></div>
+        <form id="studioExpenseForm" class="panel">
+          <div class="grid metrics">
+            <div class="field"><label for="studioStartMonth">起算月份</label><input id="studioStartMonth" type="month" value="${esc(model.startMonth)}"></div>
+            <div class="field"><label for="studioEndMonth">估算到</label><input id="studioEndMonth" type="month" value="${esc(model.endMonth)}"></div>
+          </div>
+          <div class="grid metrics">
+            <div class="field"><label for="studioTotalMonths">總月數</label><input id="studioTotalMonths" type="number" min="0" inputmode="numeric" value="${Number(model.totalMonths || 0)}"></div>
+            <div class="field"><label for="studioGaryRatio">Gary 分攤比例</label><input id="studioGaryRatio" type="number" min="0" max="100" inputmode="numeric" value="${Math.round(Number(model.splitRatio?.gary ?? 0.5) * 100)}"></div>
+          </div>
+          <div class="field"><label for="studioPartnerRatio">合夥人分攤比例</label><input id="studioPartnerRatio" type="number" min="0" max="100" inputmode="numeric" value="${Math.round(Number(model.splitRatio?.partner ?? 0.5) * 100)}"></div>
+          <h3>每月固定 / 平均支出</h3>
+          ${(model.monthlyExpenses || []).map((row, index) => renderStudioExpenseRow(row, index, "monthly")).join("")}
+          <h3>一次性建置成本</h3>
+          ${(model.oneTimeCosts || []).map((row, index) => renderStudioExpenseRow(row, index, "oneTime")).join("")}
+          <button class="primary" type="submit">更新工作室支出統計</button>
+        </form>
       `;
     }
 
@@ -2554,6 +2723,7 @@
     document.addEventListener("submit", event => {
       if (event.target.id === "caseForm") createCase(event).catch(error => alert(error.message));
       if (event.target.id === "companyRecordForm") createCompanyRecord(event).catch(error => alert(error.message));
+      if (event.target.id === "studioExpenseForm") updateStudioExpenseModel(event).catch(error => alert(error.message));
       if (event.target.id === "userForm") createUser(event).catch(error => alert(error.message));
       if (event.target.matches("[data-work-types-for]")) updateEmployeeWorkTypes(event).catch(error => alert(error.message));
       if (event.target.matches("[data-base-salary-for]")) updateEmployeeBaseSalary(event).catch(error => alert(error.message));

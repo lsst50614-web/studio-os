@@ -44,6 +44,26 @@ const receivableStatuses = new Set(["未收", "已收"]);
 const paymentMethods = new Set(["現金", "轉帳", "Line Pay", "其他"]);
 const workTypes = new Set(Object.keys(caseTypes));
 
+const defaultStudioExpenseModel = {
+  startMonth: "2019-02",
+  endMonth: "2026-05",
+  totalMonths: 88,
+  splitRatio: {
+    gary: 0.5,
+    partner: 0.5
+  },
+  monthlyExpenses: [
+    { name: "房租", amount: 12000, type: "fixed", cycle: "monthly" },
+    { name: "電費", amount: 788, type: "fixed", cycle: "monthly_average" },
+    { name: "網路", amount: 1360, type: "fixed", cycle: "monthly" },
+    { name: "營業稅", amount: 1559, type: "fixed", cycle: "monthly_average" },
+    { name: "雜項", amount: 1040, type: "variable_average", cycle: "monthly_average" }
+  ],
+  oneTimeCosts: [
+    { name: "裝潢與工作室建置", amount: 2800000, type: "capital_expense" }
+  ]
+};
+
 app.use(express.json({ limit: "6mb" }));
 app.use((req, res, next) => {
   if (req.path === "/" || req.path.endsWith(".html") || req.path.startsWith("/api/")) {
@@ -115,6 +135,21 @@ async function initDb() {
     ALTER TABLE studio_company_records
       ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT '已支出';
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS studio_settings (
+      key TEXT PRIMARY KEY,
+      value JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
+  await pool.query(
+    `INSERT INTO studio_settings (key, value)
+     VALUES ('studio_expense_model', $1::jsonb)
+     ON CONFLICT (key) DO NOTHING`,
+    [JSON.stringify(defaultStudioExpenseModel)]
+  );
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS studio_users (
@@ -248,6 +283,33 @@ function cleanUrl(value) {
   } catch (_error) {
     return "";
   }
+}
+
+function normalizeStudioExpenseModel(value = {}) {
+  const source = value && typeof value === "object" ? value : {};
+  const splitRatio = source.splitRatio && typeof source.splitRatio === "object" ? source.splitRatio : {};
+  const gary = Math.max(0, Math.min(1, Number(splitRatio.gary ?? defaultStudioExpenseModel.splitRatio.gary)));
+  const partner = Math.max(0, Math.min(1, Number(splitRatio.partner ?? (1 - gary))));
+  const normalizeRows = (rows, defaults) => {
+    const input = Array.isArray(rows) ? rows : defaults;
+    return input.map((row, index) => {
+      const fallback = defaults[index] || defaults[defaults.length - 1] || {};
+      return {
+        name: cleanText(row?.name || fallback.name || "未命名"),
+        amount: cleanNumber(row?.amount),
+        type: cleanText(row?.type || fallback.type || "fixed"),
+        cycle: cleanText(row?.cycle || fallback.cycle || "monthly")
+      };
+    });
+  };
+  return {
+    startMonth: cleanText(source.startMonth || defaultStudioExpenseModel.startMonth),
+    endMonth: cleanText(source.endMonth || defaultStudioExpenseModel.endMonth),
+    totalMonths: Math.max(0, Math.round(cleanNumber(source.totalMonths || defaultStudioExpenseModel.totalMonths))),
+    splitRatio: { gary, partner },
+    monthlyExpenses: normalizeRows(source.monthlyExpenses, defaultStudioExpenseModel.monthlyExpenses),
+    oneTimeCosts: normalizeRows(source.oneTimeCosts, defaultStudioExpenseModel.oneTimeCosts)
+  };
 }
 
 function cleanEmail(value) {
@@ -629,6 +691,33 @@ app.get("/api/company-records", async (_req, res, next) => {
     if (!(await requireBoss(_req.query.requesterId, requestToken(_req), res, "只有老闆可以讀取行政紀錄"))) return;
     const { rows } = await pool.query("SELECT * FROM studio_company_records ORDER BY occurred_on DESC, created_at DESC");
     res.json(rows.map(toCompanyRecord));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/studio-expense-model", async (req, res, next) => {
+  try {
+    if (!(await requireBoss(req.query.requesterId, requestToken(req), res, "只有老闆可以讀取工作室支出統計"))) return;
+    const { rows } = await pool.query("SELECT value FROM studio_settings WHERE key = 'studio_expense_model'");
+    res.json(normalizeStudioExpenseModel(rows[0]?.value || defaultStudioExpenseModel));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put("/api/studio-expense-model", async (req, res, next) => {
+  try {
+    if (!(await requireBoss(req.body?.requesterId, requestToken(req), res, "只有老闆可以更新工作室支出統計"))) return;
+    const model = normalizeStudioExpenseModel(req.body?.model || {});
+    const { rows } = await pool.query(
+      `INSERT INTO studio_settings (key, value, updated_at)
+       VALUES ('studio_expense_model', $1::jsonb, now())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+       RETURNING value`,
+      [JSON.stringify(model)]
+    );
+    res.json(normalizeStudioExpenseModel(rows[0].value));
   } catch (error) {
     next(error);
   }
