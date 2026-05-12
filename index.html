@@ -750,16 +750,19 @@
       "電影配樂": ["劇本分析", "音樂風格會議", "主題曲創作", "配樂錄製", "混音", "交件"],
       "非員工錄音室租借": ["時段確認", "設備確認", "進場", "使用完成", "場地復原", "結案"],
       "Podcast 錄音": ["錄音時段確認", "設備與麥克風確認", "錄音 Session", "檔案備份", "初步檢查", "交件"],
-      "Podcast 剪輯": ["素材接收", "內容整理", "剪輯粗修", "降噪與音量平衡", "客戶確認", "交件"],
-      "Podcast 月結剪輯": ["頻道與月份確認", "錄音完成", "素材接收", "剪輯完成", "交付確認", "10號月結"],
+      "Podcast 單集製作": ["錄音完成", "素材備份", "剪輯中", "剪輯完成", "已交付", "已列入月結"],
       "員工錄音室租借": ["時段確認", "設備確認", "錄音使用", "檔案整理", "場地復原", "結案"],
       "歌唱課": ["學生需求確認", "上課時段確認", "歌唱課執行", "課後建議", "費用確認", "結案"],
       "編曲課": ["學生需求確認", "上課時段確認", "編曲課執行", "作業 / 檔案確認", "費用確認", "結案"]
     };
 
+    const caseTypeAliases = {
+      "Podcast 剪輯": "Podcast 單集製作",
+      "Podcast 月結剪輯": "Podcast 單集製作"
+    };
     const workOptions = Object.keys(caseTypes);
     const staffSelfWorkOptions = ["員工錄音室租借", "歌唱課", "編曲課"];
-    const podcastMonthlyType = "Podcast 月結剪輯";
+    const podcastSingleType = "Podcast 單集製作";
     const podcastDefaultEditFee = 800;
 
     const state = {
@@ -891,7 +894,7 @@
     }
 
     function caseChecklist(type) {
-      return caseTypes[type] || caseTypes["歌唱課"] || [];
+      return caseTypes[caseTypeAliases[type] || type] || caseTypes["歌唱課"] || [];
     }
 
     function canSeeOwnStaffRental(item) {
@@ -1396,8 +1399,25 @@
       return ["錄音", "非員工錄音室租借", "Podcast 錄音", "員工錄音室租借", "歌唱課", "編曲課"].includes(type);
     }
 
-    function isPodcastMonthlyCase(type) {
-      return type === podcastMonthlyType;
+    function normalizedCaseType(type) {
+      return caseTypeAliases[type] || type;
+    }
+
+    function isPodcastSingleCase(type) {
+      return normalizedCaseType(type) === podcastSingleType;
+    }
+
+    function checklistDone(item, label) {
+      const index = caseChecklist(item.type).indexOf(label);
+      return index >= 0 && Boolean(item.checklist?.[index]);
+    }
+
+    function isPodcastDelivered(item) {
+      return isPodcastSingleCase(item.type) && checklistDone(item, "已交付");
+    }
+
+    function isPodcastSettled(item) {
+      return isPodcastSingleCase(item.type) && checklistDone(item, "已列入月結");
     }
 
     function renderHourlyPanel() {
@@ -1433,24 +1453,19 @@
       return `
         <div id="podcastPanel" class="rental-panel hidden">
           <div class="split">
-            <h3>Podcast 月結</h3>
-            <span class="small">10 號前結算剪輯費</span>
+            <h3>Podcast 單集</h3>
+            <span class="small">一集一案，已交付後列入應付</span>
           </div>
           <div class="grid metrics">
             <div class="field"><label for="podcastChannel">頻道名稱</label><input id="podcastChannel" placeholder="例如：晨嵐 Podcast"></div>
-            <div class="field"><label for="podcastMonth">月份</label><input id="podcastMonth" type="month"></div>
+            <div class="field"><label for="podcastEpisodeName">集數 / 集名</label><input id="podcastEpisodeName" placeholder="例如：EP12 訪談剪輯"></div>
           </div>
           <div class="grid metrics">
-            <div class="field"><label for="podcastEpisodeName">期次 / 名稱</label><input id="podcastEpisodeName" placeholder="例如：EP12-16 或 5 月份"></div>
-            <div class="field"><label for="podcastRecordedCount">錄音集數</label><input id="podcastRecordedCount" type="number" min="0" inputmode="numeric" value="0"></div>
+            <div class="field"><label for="podcastRecordedAt">錄音日期</label><input id="podcastRecordedAt" type="date"></div>
+            <div class="field"><label for="podcastEditFee">本集剪輯費</label><input id="podcastEditFee" type="number" min="0" inputmode="numeric" value="${podcastDefaultEditFee}"></div>
           </div>
-          <div class="grid metrics">
-            <div class="field"><label for="podcastEditedCount">剪完集數</label><input id="podcastEditedCount" type="number" min="0" inputmode="numeric" value="1"></div>
-            <div class="field"><label for="podcastEditFee">每集剪輯成本</label><input id="podcastEditFee" type="number" min="0" inputmode="numeric" value="${podcastDefaultEditFee}"></div>
-          </div>
-          <div class="field"><label for="podcastRevenue">本月收款 / 報價</label><input id="podcastRevenue" type="number" min="0" inputmode="numeric" value="0"></div>
-          <p id="podcastSummary" class="small">剪完 1 集 x $800 = 員工剪輯費 $800；本月收款可另外填。</p>
-          <p class="small">進度會分成錄音完成、剪輯完成、交付確認、10號月結；員工領錢看剪完集數。</p>
+          <div class="field"><label for="podcastRevenue">本集收款 / 報價</label><input id="podcastRevenue" type="number" min="0" inputmode="numeric" value="0"></div>
+          <p id="podcastSummary" class="small">員工剪輯費 $800；本集收款可另外填。員工勾到已交付後，老闆財務會顯示應付金額。</p>
         </div>
       `;
     }
@@ -1563,10 +1578,8 @@
       const caseType = document.querySelector("#caseType");
       const panel = document.querySelector("#podcastPanel");
       const channel = document.querySelector("#podcastChannel");
-      const month = document.querySelector("#podcastMonth");
       const episodeName = document.querySelector("#podcastEpisodeName");
-      const recordedCount = document.querySelector("#podcastRecordedCount");
-      const editedCount = document.querySelector("#podcastEditedCount");
+      const recordedAt = document.querySelector("#podcastRecordedAt");
       const fee = document.querySelector("#podcastEditFee");
       const revenue = document.querySelector("#podcastRevenue");
       const summary = document.querySelector("#podcastSummary");
@@ -1581,35 +1594,32 @@
       const firstSplitValue = document.querySelector("[data-split-value]");
       const firstSplitNote = document.querySelector("[data-split-note]");
 
-      const editCost = () => Math.round(Number(editedCount.value || 0) * Number(fee.value || 0));
-      const monthLabel = () => (month.value || localMonthString()).replace("-", "/");
-
       const syncPodcast = () => {
-        if (!isPodcastMonthlyCase(caseType.value)) return;
-        const amount = editCost();
+        if (!isPodcastSingleCase(caseType.value)) return;
+        const amount = Math.round(Number(fee.value || 0));
         quote.value = String(Number(revenue.value || 0));
-        cost.value = String(amount);
-        summary.textContent = `錄音 ${Number(recordedCount.value || 0)} 集；剪完 ${Number(editedCount.value || 0)} 集 x ${money(Number(fee.value || 0))} = 員工剪輯費 ${money(amount)}；本月收款 ${money(Number(revenue.value || 0))}。`;
+        cost.value = "0";
+        summary.textContent = `本集員工剪輯費 ${money(amount)}；本集收款 ${money(Number(revenue.value || 0))}。勾到已交付後，老闆財務會列為應付。`;
         if (channel.value.trim() && !client.value.trim()) client.value = channel.value.trim();
         if (!caseName.value.trim() || caseName.dataset.autoPodcastName === "true") {
-          caseName.value = `Podcast月結｜${channel.value.trim() || "頻道"}｜${monthLabel()}${episodeName.value.trim() ? `｜${episodeName.value.trim()}` : ""}`;
+          caseName.value = `${channel.value.trim() || "Podcast"}｜${episodeName.value.trim() || "單集製作"}`;
           caseName.dataset.autoPodcastName = "true";
         }
         if (firstSplitEmployee) firstSplitEmployee.value = owner.value;
-        if (firstSplitWorkType) firstSplitWorkType.value = podcastMonthlyType;
+        if (firstSplitWorkType) firstSplitWorkType.value = podcastSingleType;
         if (firstSplitMethod) firstSplitMethod.value = "固定金額";
         if (firstSplitValue) firstSplitValue.value = String(amount);
-        if (firstSplitNote) firstSplitNote.value = `Podcast 月結剪輯，剪完 ${Number(editedCount.value || 0)} 集 x ${money(Number(fee.value || 0))}，10號前結算`;
+        if (firstSplitNote) firstSplitNote.value = `Podcast 單集剪輯，已交付後支付 ${money(amount)}`;
       };
 
       const togglePodcast = () => {
-        const enabled = isPodcastMonthlyCase(caseType.value);
+        const enabled = isPodcastSingleCase(caseType.value);
         panel.classList.toggle("hidden", !enabled);
-        if (enabled && !month.value) month.value = localMonthString();
+        if (enabled && !recordedAt.value) recordedAt.value = document.querySelector("#start").value || localDateString();
         if (enabled) syncPodcast();
       };
 
-      [channel, month, episodeName, recordedCount, editedCount, fee, revenue, owner].forEach(input => input.addEventListener("input", syncPodcast));
+      [channel, episodeName, recordedAt, fee, revenue, owner].forEach(input => input.addEventListener("input", syncPodcast));
       caseType.addEventListener("change", togglePodcast);
       caseName.addEventListener("input", () => {
         caseName.dataset.autoPodcastName = "false";
@@ -1627,7 +1637,7 @@
       els.viewRoot.innerHTML = `
         <form id="caseForm" class="panel">
           <div class="field"><label for="caseName">案件名稱</label><input id="caseName" required placeholder="案件名稱"></div>
-          <div class="field"><label for="caseType">案件種類</label><select id="caseType">${Object.keys(caseTypes).map(type => `<option>${type}</option>`).join("")}</select></div>
+          <div class="field"><label for="caseType">案件種類</label><select id="caseType">${workOptions.map(type => `<option>${type}</option>`).join("")}</select></div>
           <div class="field"><label for="client">客戶名稱</label><input id="client" required placeholder="客戶或品牌名稱"></div>
           <div class="field"><label for="owner">主要負責人</label><select id="owner" required>${employeeOptions("", true)}</select></div>
           <div class="grid metrics">
@@ -1650,7 +1660,7 @@
       document.querySelector("#owner").addEventListener("change", event => {
         const firstSplitEmployee = document.querySelector("[data-split-employee]");
         const caseType = document.querySelector("#caseType").value;
-        if (firstSplitEmployee && (["歌唱課", "編曲課", podcastMonthlyType].includes(caseType) || !firstSplitEmployee.value)) firstSplitEmployee.value = event.target.value;
+        if (firstSplitEmployee && (["歌唱課", "編曲課", podcastSingleType].includes(caseType) || !firstSplitEmployee.value)) firstSplitEmployee.value = event.target.value;
       });
       setupHourlyControls();
       setupPodcastControls();
@@ -1671,15 +1681,13 @@
       event.preventDefault();
       const type = document.querySelector("#caseType").value;
       let notes = document.querySelector("#notes").value.trim();
-      if (isPodcastMonthlyCase(type)) {
+      if (isPodcastSingleCase(type)) {
         const channel = document.querySelector("#podcastChannel").value.trim();
-        const month = document.querySelector("#podcastMonth").value;
         const episodeName = document.querySelector("#podcastEpisodeName").value.trim();
-        const recordedCount = Number(document.querySelector("#podcastRecordedCount").value || 0);
-        const editedCount = Number(document.querySelector("#podcastEditedCount").value || 0);
+        const recordedAt = document.querySelector("#podcastRecordedAt").value;
         const fee = Number(document.querySelector("#podcastEditFee").value || 0);
         const revenue = Number(document.querySelector("#podcastRevenue").value || 0);
-        const podcastNote = `Podcast 月結：${channel || "未填頻道"} / ${month || localMonthString()} / ${episodeName || "未填期次"} / 錄音 ${recordedCount} 集 / 剪完 ${editedCount} 集 x ${money(fee)} = 剪輯成本 ${money(editedCount * fee)} / 本月收款 ${money(revenue)} / 10號前結算。`;
+        const podcastNote = `Podcast 單集：${channel || "未填頻道"} / ${episodeName || "未填集名"} / 錄音日期 ${recordedAt || "未填"} / 本集剪輯費 ${money(fee)} / 本集收款 ${money(revenue)} / 員工勾到已交付後列入老闆應付。`;
         notes = notes ? `${notes}\n${podcastNote}` : podcastNote;
       }
       const splits = [...document.querySelectorAll("[data-split-row]")]
@@ -2023,6 +2031,8 @@
       const salary = employeeList().reduce((sum, employee) => sum + payrollFor(employee.name).total, 0);
       const pettyCash = monthlyPettyCash();
       const pendingCash = pendingPettyCash();
+      const podcastDueItems = state.cases.filter(item => isPodcastDelivered(item) && !isPodcastSettled(item));
+      const podcastDue = podcastDueItems.reduce((sum, item) => sum + caseSplitTotal(item), 0);
       els.viewRoot.innerHTML = `
         <div class="grid metrics">
           <div class="metric"><span>本月總案件金額</span><b>${money(total)}</b></div>
@@ -2033,6 +2043,16 @@
           <div class="metric"><span>現金收入</span><b>${money(paymentStats.cash)}</b></div>
           <div class="metric"><span>零用金支出</span><b>${money(pettyCash)}</b></div>
           <div class="metric"><span>未支出零用金</span><b>${money(pendingCash)}</b></div>
+          <div class="metric"><span>Podcast 已交付應付</span><b>${money(podcastDue)}</b></div>
+        </div>
+        <div class="section-title"><h3>Podcast 已交付應付</h3><strong>${money(podcastDue)}</strong></div>
+        <div class="grid">
+          ${podcastDueItems.length ? podcastDueItems.map(item => `<div class="finance-row">
+            <div class="split"><h3>${esc(item.name)}</h3><strong>${money(caseSplitTotal(item))}</strong></div>
+            <p class="small">${esc(item.id)} · ${esc(item.client)} · ${esc(item.owner)}</p>
+            ${(item.splits || []).length ? `<p class="small">應付：${item.splits.map(split => `${esc(split.employee)} ${esc(splitMethodLabel(split))}`).join(" · ")}</p>` : `<p class="small">尚未設定剪輯費</p>`}
+            <p class="small">結完薪水後，進案件把「已列入月結」勾起來，這筆就會從應付清單移除。</p>
+          </div>`).join("") : emptyPanel("目前沒有已交付但尚未列入月結的 Podcast。")}
         </div>
         <div class="section-title"><h3>薪資支出</h3><strong>${money(salary)}</strong></div>
         <div class="grid">
@@ -2226,12 +2246,14 @@
           <div class="split"><h3>製作 Checklist</h3><strong>${progressOf(item)}%</strong></div>
           <div class="progress-track"><div class="progress-fill" style="width:${progressOf(item)}%"></div></div>
           <div class="checklist">
-            ${caseChecklist(item.type).map((label, index) => `
+            ${caseChecklist(item.type).map((label, index) => {
+              if (!state.user.isBoss && isPodcastSingleCase(item.type) && label === "已列入月結") return "";
+              return `
               <label class="check-item">
                 <input type="checkbox" ${item.checklist[index] ? "checked" : ""} data-check="${item.id}" data-index="${index}">
                 <span>${esc(label)}</span>
               </label>
-            `).join("")}
+            `;}).join("")}
           </div>
         </div>
         <div class="delivery-band">
