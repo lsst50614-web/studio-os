@@ -2196,6 +2196,20 @@
           <div class="metric"><span>篩選已收</span><b>${money(filteredStats.received)}</b></div>
           <div class="metric"><span>篩選未收</span><b>${money(filteredStats.unpaid)}</b></div>
         </div>
+        <div class="section-title"><h3>${state.revenueQuery ? "搜尋結果" : "案件列表"}</h3><strong>${items.length} 件</strong></div>
+        <div class="grid">
+          ${items.length ? items.map(item => `
+            <div class="finance-row">
+              <div class="split"><h3>${esc(item.clientName)}</h3><span class="badge status-${item.status === "ongoing" ? "製作中" : "已完成"}">${revenueStatusText(item.status)}</span></div>
+              <p class="small">${esc(item.projectDate)} · ${esc(item.phone || "未填電話")}</p>
+              <p class="muted">${esc(item.projectName)}</p>
+              <div class="split"><span>總金額</span><strong>${money(item.totalAmount)}</strong></div>
+              <div class="split"><span>已收款</span><strong>${money(item.receivedAmount)}</strong></div>
+              <div class="split"><span>未收款</span><strong>${money(item.unpaidAmount)}</strong></div>
+              ${item.note ? `<p class="small">${esc(item.note)}</p>` : ""}
+            </div>
+          `).join("") : emptyPanel("目前沒有符合條件的歷史營收。")}
+        </div>
         <div class="section-title"><h3>歷年營收統計</h3></div>
         <div class="grid">
           ${yearlyRevenueRows().map(row => `
@@ -2213,20 +2227,6 @@
               <p class="small">${esc(row.phone || "未填電話")} · ${row.count} 件 · 已收 ${money(row.received)} · 未收 ${money(row.unpaid)}</p>
             </div>
           `).join("")}
-        </div>
-        <div class="section-title"><h3>案件列表</h3><strong>${items.length} 件</strong></div>
-        <div class="grid">
-          ${items.length ? items.map(item => `
-            <div class="finance-row">
-              <div class="split"><h3>${esc(item.clientName)}</h3><span class="badge status-${item.status === "ongoing" ? "製作中" : "已完成"}">${revenueStatusText(item.status)}</span></div>
-              <p class="small">${esc(item.projectDate)} · ${esc(item.phone || "未填電話")}</p>
-              <p class="muted">${esc(item.projectName)}</p>
-              <div class="split"><span>總金額</span><strong>${money(item.totalAmount)}</strong></div>
-              <div class="split"><span>已收款</span><strong>${money(item.receivedAmount)}</strong></div>
-              <div class="split"><span>未收款</span><strong>${money(item.unpaidAmount)}</strong></div>
-              ${item.note ? `<p class="small">${esc(item.note)}</p>` : ""}
-            </div>
-          `).join("") : emptyPanel("目前沒有符合條件的歷史營收。")}
         </div>
         <div class="section-title"><h3>新增歷史營收</h3></div>
         <form id="historicalRevenueForm" class="panel">
