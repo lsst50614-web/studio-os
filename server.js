@@ -331,20 +331,25 @@ function normalizedSplits(rawSplits, quote) {
   return rawSplits
     .map(split => {
       const employee = cleanText(split?.employee);
-      const workType = cleanText(split?.workType);
+      const selectedWorkTypes = (Array.isArray(split?.workTypes) ? split.workTypes : [split?.workType])
+        .map(cleanText)
+        .filter(item => workTypes.has(item));
+      const uniqueWorkTypes = [...new Set(selectedWorkTypes)];
+      const workType = uniqueWorkTypes.join(" / ");
       const method = split?.method === "百分比" ? "百分比" : "固定金額";
       const value = cleanNumber(split?.value);
       const amount = method === "百分比" ? Math.round(cleanNumber(quote) * value / 100) : Math.round(value);
       return {
         employee,
         workType,
+        workTypes: uniqueWorkTypes,
         method,
         value,
         amount,
         note: cleanText(split?.note)
       };
     })
-    .filter(split => split.employee && split.workType && split.value > 0);
+    .filter(split => split.employee && split.workTypes.length && split.value > 0);
 }
 
 function cleanUrl(value) {

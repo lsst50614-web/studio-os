@@ -930,6 +930,25 @@
       return split.method === "百分比" ? `${Number(split.value || 0)}%` : money(split.value);
     }
 
+    function splitWorkTypes(split) {
+      const raw = Array.isArray(split?.workTypes) && split.workTypes.length
+        ? split.workTypes
+        : String(split?.workType || "").split("/");
+      return raw.map(item => item.trim()).filter(Boolean);
+    }
+
+    function splitWorkTypeLabel(split) {
+      return splitWorkTypes(split).join(" / ") || "未設定工作";
+    }
+
+    function setSplitWorkTypes(row, selectedTypes = []) {
+      if (!row) return;
+      const selected = new Set(Array.isArray(selectedTypes) ? selectedTypes : [selectedTypes]);
+      row.querySelectorAll("[data-split-work-type]").forEach(input => {
+        input.checked = selected.has(input.value);
+      });
+    }
+
     async function api(path, options = {}) {
       const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
       if (state.user?.token) headers["X-Studio-Token"] = state.user.token;
@@ -1366,7 +1385,12 @@
       const employeeOptions = employees.length
         ? `<option value="">選擇員工</option>${employees.map(employee => `<option value="${esc(employee.name)}">${esc(employee.label)}</option>`).join("")}`
         : `<option value="">請先建立員工</option>`;
-      const workOptions = Object.keys(caseTypes).map(type => `<option value="${esc(type)}">${esc(type)}</option>`).join("");
+      const workOptions = Object.keys(caseTypes).map(type => `
+        <label class="check-item">
+          <input type="checkbox" value="${esc(type)}" data-split-work-type>
+          <span>${esc(type)}</span>
+        </label>
+      `).join("");
       return `
         <div class="split-row-form" data-split-row>
           <div class="split">
@@ -1379,8 +1403,8 @@
               <select id="splitEmployee${index}" data-split-employee>${employeeOptions}</select>
             </div>
             <div class="field">
-              <label for="splitWorkType${index}">工作</label>
-              <select id="splitWorkType${index}" data-split-work-type>${workOptions}</select>
+              <label>工作，可複選</label>
+              <div class="checklist" data-split-work-types>${workOptions}</div>
             </div>
           </div>
           <div class="grid metrics">
@@ -1512,7 +1536,8 @@
       const rate = document.querySelector("#hourlyRate");
       const quote = document.querySelector("#quote");
       const firstSplitEmployee = document.querySelector("[data-split-employee]");
-      const firstSplitWorkType = document.querySelector("[data-split-work-type]");
+      const firstSplitRow = document.querySelector("[data-split-row]");
+      const firstSplitWorkTypes = document.querySelector("[data-split-work-types]");
       const firstSplitMethod = document.querySelector("[data-split-method]");
       const firstSplitValue = document.querySelector("[data-split-value]");
       const firstSplitNote = document.querySelector("[data-split-note]");
@@ -1528,6 +1553,9 @@
       const setDisabled = (input, locked) => {
         if (!input) return;
         input.disabled = locked;
+        input.querySelectorAll?.("input, select, button").forEach(child => {
+          child.disabled = locked;
+        });
       };
 
       const refreshQuote = () => {
@@ -1543,14 +1571,14 @@
         if (preset.value === "staffRental") {
           rate.value = "1000";
           if (firstSplitEmployee && !firstSplitEmployee.value) firstSplitEmployee.value = document.querySelector("#owner").value;
-          if (firstSplitWorkType) firstSplitWorkType.value = "員工錄音室租借";
+          setSplitWorkTypes(firstSplitRow, ["員工錄音室租借"]);
           if (firstSplitNote) firstSplitNote.value = "員工錄音室租借，棚租 1000 / 小時";
         }
         if (preset.value === "vocalCourse") {
           hours.value = "4";
           rate.value = "1000";
           if (firstSplitEmployee) firstSplitEmployee.value = document.querySelector("#owner").value;
-          if (firstSplitWorkType) firstSplitWorkType.value = "歌唱課";
+          setSplitWorkTypes(firstSplitRow, ["歌唱課"]);
           if (firstSplitMethod) firstSplitMethod.value = "百分比";
           if (firstSplitValue) firstSplitValue.value = "70";
           if (firstSplitNote) firstSplitNote.value = "歌唱課 4000 / 月，4 小時，老師 7 成、晨嵐 3 成";
@@ -1559,7 +1587,7 @@
           hours.value = "2";
           rate.value = "1000";
           if (firstSplitEmployee) firstSplitEmployee.value = document.querySelector("#owner").value;
-          if (firstSplitWorkType) firstSplitWorkType.value = "編曲課";
+          setSplitWorkTypes(firstSplitRow, ["編曲課"]);
           if (firstSplitMethod) firstSplitMethod.value = "百分比";
           if (firstSplitValue) firstSplitValue.value = "70";
           if (firstSplitNote) firstSplitNote.value = "編曲課 2000 / 堂，2 小時，老師 7 成、晨嵐 3 成";
@@ -1567,7 +1595,7 @@
         if (preset.value === "partner") {
           rate.value = "1500";
           if (firstSplitEmployee && !firstSplitEmployee.value) firstSplitEmployee.value = document.querySelector("#owner").value;
-          if (firstSplitWorkType) firstSplitWorkType.value = "非員工錄音室租借";
+          setSplitWorkTypes(firstSplitRow, ["非員工錄音室租借"]);
           if (firstSplitMethod) firstSplitMethod.value = "百分比";
           if (firstSplitValue && !firstSplitValue.value) firstSplitValue.value = "70";
           if (firstSplitNote && !firstSplitNote.value) firstSplitNote.value = "前員工帶單拆帳 7/3，晨嵐留 3 成";
@@ -1585,7 +1613,7 @@
         preset.disabled = staffRental || lockedCourse;
         setReadonly(hours, lockedCourse);
         setReadonly(rate, staffRental || lockedCourse);
-        setDisabled(firstSplitWorkType, lockedCourse);
+        setDisabled(firstSplitWorkTypes, lockedCourse);
         setDisabled(firstSplitMethod, lockedCourse);
         setReadonly(firstSplitValue, lockedCourse);
         setDisabled(addSplitButton, lockedCourse);
@@ -1622,7 +1650,7 @@
       const client = document.querySelector("#client");
       const owner = document.querySelector("#owner");
       const firstSplitEmployee = document.querySelector("[data-split-employee]");
-      const firstSplitWorkType = document.querySelector("[data-split-work-type]");
+      const firstSplitRow = document.querySelector("[data-split-row]");
       const firstSplitMethod = document.querySelector("[data-split-method]");
       const firstSplitValue = document.querySelector("[data-split-value]");
       const firstSplitNote = document.querySelector("[data-split-note]");
@@ -1639,7 +1667,7 @@
           caseName.dataset.autoPodcastName = "true";
         }
         if (firstSplitEmployee) firstSplitEmployee.value = owner.value;
-        if (firstSplitWorkType) firstSplitWorkType.value = podcastSingleType;
+        setSplitWorkTypes(firstSplitRow, [podcastSingleType]);
         if (firstSplitMethod) firstSplitMethod.value = "固定金額";
         if (firstSplitValue) firstSplitValue.value = String(amount);
         if (firstSplitNote) firstSplitNote.value = `Podcast 單集剪輯，已交付後支付 ${money(amount)}`;
@@ -1726,12 +1754,12 @@
       const splits = [...document.querySelectorAll("[data-split-row]")]
         .map(row => ({
           employee: row.querySelector("[data-split-employee]").value,
-          workType: row.querySelector("[data-split-work-type]").value,
+          workTypes: [...row.querySelectorAll("[data-split-work-type]:checked")].map(input => input.value),
           method: row.querySelector("[data-split-method]").value,
           value: Number(row.querySelector("[data-split-value]").value || 0),
           note: row.querySelector("[data-split-note]").value.trim()
         }))
-        .filter(split => split.employee && split.value > 0);
+        .filter(split => split.employee && split.workTypes.length && split.value > 0);
       const payload = {
         name: document.querySelector("#caseName").value.trim(),
         type,
@@ -2369,7 +2397,7 @@
             <div class="split"><span>分潤支出</span><strong>${money(caseSplitTotal(item))}</strong></div>
             <div class="split"><span>預估利潤</span><strong>${money(caseProfit(item))}</strong></div>
             <div class="split"><span>收款進度</span><strong>${money(paymentSummary(paymentsForCase(item.id)).paid)} / ${money(paymentSummary(paymentsForCase(item.id)).totalDue || item.quote)}</strong></div>
-            ${(item.splits || []).length ? `<p class="small">拆帳：${item.splits.map(split => `${esc(split.employee)} ${esc(split.workType)} ${esc(splitMethodLabel(split))}`).join(" · ")}</p>` : `<p class="small">尚未設定拆帳</p>`}
+            ${(item.splits || []).length ? `<p class="small">拆帳：${item.splits.map(split => `${esc(split.employee)} ${esc(splitWorkTypeLabel(split))} ${esc(splitMethodLabel(split))}`).join(" · ")}</p>` : `<p class="small">尚未設定拆帳</p>`}
           </div>`).join("") : emptyPanel()}
         </div>
       `;
@@ -2498,7 +2526,7 @@
       if (!rows.length) return `<p class="small">尚未設定案件分潤。</p>`;
       return rows.map(split => `
         <div class="split">
-          <span>${esc(split.employee)} · ${esc(split.workType)} · ${esc(split.method)}</span>
+          <span>${esc(split.employee)} · ${esc(splitWorkTypeLabel(split))} · ${esc(split.method)}</span>
           <strong>${money(splitAmount(split, item.quote))}</strong>
         </div>
         ${split.note ? `<p class="small">${esc(split.note)}</p>` : ""}
