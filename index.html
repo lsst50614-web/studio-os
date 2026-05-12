@@ -799,6 +799,8 @@
     };
 
     const sessionKey = "studio-os-session-user";
+    let revenueSearchComposing = false;
+    let revenueSearchTimer = null;
 
     const els = {
       loginScreen: document.querySelector("#loginScreen"),
@@ -2113,7 +2115,7 @@
       const query = cleanKey(state.revenueQuery);
       return state.historicalRevenues.filter(item => {
         const statusMatch = state.revenueStatus === "all" || item.status === state.revenueStatus;
-        const text = cleanKey(`${item.clientName} ${item.phone} ${item.projectName} ${item.note}`);
+        const text = cleanKey(`${item.clientName} ${item.phone} ${item.projectName} ${item.note} ${revenueStatusText(item.status)} ${item.projectDate}`);
         return statusMatch && (!query || text.includes(query));
       });
     }
@@ -2183,8 +2185,8 @@
           <div class="metric"><span>製作中</span><b>${allStats.ongoing}</b></div>
         </div>
         <div class="field">
-          <label for="revenueSearch">搜尋客戶 / 電話 / 案件</label>
-          <input id="revenueSearch" value="${esc(state.revenueQuery)}" placeholder="輸入客戶名稱、電話或案件名稱">
+          <label for="revenueSearch">搜尋客戶 / 電話 / 案件 / 項目</label>
+          <input id="revenueSearch" type="search" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(state.revenueQuery)}" placeholder="例如：錄音、製作、混音、客戶名稱或電話">
         </div>
         <div class="filter-row">
           ${statusFilters.map(([key, label]) => `<button class="chip ${state.revenueStatus === key ? "active" : ""}" type="button" data-revenue-status="${key}">${label}</button>`).join("")}
@@ -2882,18 +2884,35 @@
       }
     });
 
+    function applyRevenueSearch(value) {
+      state.revenueQuery = value;
+      renderHistoricalRevenue();
+      requestAnimationFrame(() => {
+        const input = document.querySelector("#revenueSearch");
+        if (input) {
+          input.focus();
+          input.setSelectionRange(input.value.length, input.value.length);
+        }
+      });
+    }
+
+    document.addEventListener("compositionstart", event => {
+      if (event.target.id === "revenueSearch") revenueSearchComposing = true;
+    });
+
+    document.addEventListener("compositionend", event => {
+      if (event.target.id !== "revenueSearch") return;
+      revenueSearchComposing = false;
+      clearTimeout(revenueSearchTimer);
+      applyRevenueSearch(event.target.value);
+    });
+
     document.addEventListener("input", event => {
-      if (event.target.id === "revenueSearch") {
-        state.revenueQuery = event.target.value;
-        renderHistoricalRevenue();
-        requestAnimationFrame(() => {
-          const input = document.querySelector("#revenueSearch");
-          if (input) {
-            input.focus();
-            input.setSelectionRange(input.value.length, input.value.length);
-          }
-        });
-      }
+      if (event.target.id !== "revenueSearch") return;
+      if (revenueSearchComposing || event.isComposing) return;
+      const value = event.target.value;
+      clearTimeout(revenueSearchTimer);
+      revenueSearchTimer = setTimeout(() => applyRevenueSearch(value), 180);
     });
 
     document.addEventListener("change", event => {
