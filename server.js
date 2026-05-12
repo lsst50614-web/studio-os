@@ -860,6 +860,69 @@ app.post("/api/historical-revenues", async (req, res, next) => {
   }
 });
 
+app.patch("/api/historical-revenues/:id", async (req, res, next) => {
+  try {
+    if (!(await requireBoss(req.body?.requesterId, requestToken(req), res, "只有老闆可以編輯晨嵐歷史營收"))) return;
+    const body = req.body || {};
+    const id = Number(req.params.id);
+    const clientName = cleanText(body.clientName);
+    const projectName = cleanText(body.projectName);
+    const projectDate = cleanText(body.projectDate);
+    const status = body.status === "ongoing" ? "ongoing" : "completed";
+    if (!Number.isInteger(id) || id <= 0 || !clientName || !projectName || !projectDate) {
+      res.status(400).json({ error: "請填寫客戶名稱、案件名稱與日期" });
+      return;
+    }
+    const total = cleanNumber(body.totalAmount);
+    const received = cleanNumber(body.receivedAmount);
+    const unpaid = Math.max(0, total - received);
+    const { rows } = await pool.query(
+      `UPDATE studio_historical_revenues
+       SET client_name = $1,
+           phone = $2,
+           project_name = $3,
+           total_amount = $4,
+           received_amount = $5,
+           unpaid_amount = $6,
+           project_date = $7,
+           status = $8,
+           note = $9,
+           updated_at = now()
+       WHERE id = $10
+       RETURNING *`,
+      [
+        clientName,
+        cleanText(body.phone),
+        projectName,
+        total,
+        received,
+        unpaid,
+        projectDate,
+        status,
+        cleanText(body.note),
+        id
+      ]
+    );
+    if (!rows[0]) {
+      res.status(404).json({ error: "找不到歷史營收資料" });
+      return;
+    }
+    res.json(toHistoricalRevenue(rows[0]));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/historical-revenues/:id", async (req, res, next) => {
+  try {
+    if (!(await requireBoss(req.body?.requesterId, requestToken(req), res, "只有老闆可以刪除晨嵐歷史營收"))) return;
+    await pool.query("DELETE FROM studio_historical_revenues WHERE id = $1", [req.params.id]);
+    res.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/expense-claims", async (req, res, next) => {
   try {
     const user = await requireUser(req.query.requesterId, requestToken(req), res, "沒有權限讀取報帳");

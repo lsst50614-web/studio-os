@@ -794,6 +794,7 @@
       studioExpenseModel: defaultStudioExpenseModel,
       revenueQuery: "",
       revenueStatus: "all",
+      editingRevenueId: null,
       loading: false,
       apiError: ""
     };
@@ -2107,6 +2108,38 @@
       renderApp();
     }
 
+    async function updateHistoricalRevenue(event) {
+      event.preventDefault();
+      const form = event.target;
+      const id = form.dataset.editRevenue;
+      const revenue = await api(`/api/historical-revenues/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(authPayload({
+          clientName: form.querySelector("[name='clientName']").value.trim(),
+          phone: form.querySelector("[name='phone']").value.trim(),
+          projectName: form.querySelector("[name='projectName']").value.trim(),
+          totalAmount: Number(form.querySelector("[name='totalAmount']").value || 0),
+          receivedAmount: Number(form.querySelector("[name='receivedAmount']").value || 0),
+          projectDate: form.querySelector("[name='projectDate']").value,
+          status: form.querySelector("[name='status']").value,
+          note: form.querySelector("[name='note']").value.trim()
+        }))
+      });
+      state.historicalRevenues = state.historicalRevenues.map(item => String(item.id) === String(id) ? revenue : item);
+      state.editingRevenueId = null;
+      renderApp();
+    }
+
+    async function deleteHistoricalRevenue(id) {
+      await api(`/api/historical-revenues/${id}`, {
+        method: "DELETE",
+        body: JSON.stringify(authPayload())
+      });
+      state.historicalRevenues = state.historicalRevenues.filter(item => String(item.id) !== String(id));
+      if (String(state.editingRevenueId) === String(id)) state.editingRevenueId = null;
+      renderApp();
+    }
+
     function revenueStatusText(status) {
       return status === "ongoing" ? "製作中" : "已結案";
     }
@@ -2158,6 +2191,51 @@
       return [...map.values()].sort((a, b) => b.total - a.total).slice(0, 8);
     }
 
+    function renderHistoricalRevenueEditor(item) {
+      return `
+        <form class="delivery-form" data-edit-revenue="${item.id}">
+          <div class="grid metrics">
+            <div class="field"><label>客戶名稱</label><input name="clientName" required value="${esc(item.clientName)}"></div>
+            <div class="field"><label>電話</label><input name="phone" inputmode="tel" value="${esc(item.phone || "")}"></div>
+          </div>
+          <div class="field"><label>案件名稱 / 項目</label><input name="projectName" required value="${esc(item.projectName)}"></div>
+          <div class="grid metrics">
+            <div class="field"><label>日期</label><input name="projectDate" type="date" required value="${esc(item.projectDate)}"></div>
+            <div class="field"><label>狀態</label><select name="status"><option value="completed" ${item.status === "completed" ? "selected" : ""}>已結案</option><option value="ongoing" ${item.status === "ongoing" ? "selected" : ""}>製作中</option></select></div>
+          </div>
+          <div class="grid metrics">
+            <div class="field"><label>總金額</label><input name="totalAmount" type="number" min="0" inputmode="numeric" value="${Number(item.totalAmount || 0)}"></div>
+            <div class="field"><label>已收款</label><input name="receivedAmount" type="number" min="0" inputmode="numeric" value="${Number(item.receivedAmount || 0)}"></div>
+          </div>
+          <div class="field"><label>備註</label><textarea name="note">${esc(item.note || "")}</textarea></div>
+          <div class="split">
+            <button class="primary" type="submit">儲存修改</button>
+            <button class="ghost" type="button" data-cancel-revenue-edit>取消</button>
+          </div>
+        </form>
+      `;
+    }
+
+    function renderHistoricalRevenueCard(item) {
+      const editing = String(state.editingRevenueId) === String(item.id);
+      return `
+        <div class="finance-row">
+          <div class="split"><h3>${esc(item.clientName)}</h3><span class="badge status-${item.status === "ongoing" ? "製作中" : "已完成"}">${revenueStatusText(item.status)}</span></div>
+          <p class="small">${esc(item.projectDate)} · ${esc(item.phone || "未填電話")}</p>
+          <p class="muted">${esc(item.projectName)}</p>
+          <div class="split"><span>總金額</span><strong>${money(item.totalAmount)}</strong></div>
+          <div class="split"><span>已收款</span><strong>${money(item.receivedAmount)}</strong></div>
+          <div class="split"><span>未收款</span><strong>${money(item.unpaidAmount)}</strong></div>
+          ${item.note ? `<p class="small">${esc(item.note)}</p>` : ""}
+          <div class="split">
+            <button class="ghost" type="button" data-edit-revenue-button="${item.id}">${editing ? "收起編輯" : "編輯"}</button>
+            <button class="ghost" type="button" data-delete-revenue="${item.id}">刪除</button>
+          </div>
+          ${editing ? renderHistoricalRevenueEditor(item) : ""}
+        </div>
+      `;
+    }
+
     function renderHistoricalRevenue() {
       if (!state.user.isBoss) {
         state.page = "home";
@@ -2198,17 +2276,7 @@
         </div>
         <div class="section-title"><h3>${state.revenueQuery ? "搜尋結果" : "案件列表"}</h3><strong>${items.length} 件</strong></div>
         <div class="grid">
-          ${items.length ? items.map(item => `
-            <div class="finance-row">
-              <div class="split"><h3>${esc(item.clientName)}</h3><span class="badge status-${item.status === "ongoing" ? "製作中" : "已完成"}">${revenueStatusText(item.status)}</span></div>
-              <p class="small">${esc(item.projectDate)} · ${esc(item.phone || "未填電話")}</p>
-              <p class="muted">${esc(item.projectName)}</p>
-              <div class="split"><span>總金額</span><strong>${money(item.totalAmount)}</strong></div>
-              <div class="split"><span>已收款</span><strong>${money(item.receivedAmount)}</strong></div>
-              <div class="split"><span>未收款</span><strong>${money(item.unpaidAmount)}</strong></div>
-              ${item.note ? `<p class="small">${esc(item.note)}</p>` : ""}
-            </div>
-          `).join("") : emptyPanel("目前沒有符合條件的歷史營收。")}
+          ${items.length ? items.map(renderHistoricalRevenueCard).join("") : emptyPanel("目前沒有符合條件的歷史營收。")}
         </div>
         <div class="section-title"><h3>歷年營收統計</h3></div>
         <div class="grid">
@@ -2882,6 +2950,24 @@
         state.revenueStatus = revenueStatusBtn.dataset.revenueStatus;
         renderHistoricalRevenue();
       }
+
+      const editRevenueBtn = event.target.closest("[data-edit-revenue-button]");
+      if (editRevenueBtn) {
+        const id = editRevenueBtn.dataset.editRevenueButton;
+        state.editingRevenueId = String(state.editingRevenueId) === String(id) ? null : id;
+        renderHistoricalRevenue();
+      }
+
+      const cancelRevenueEditBtn = event.target.closest("[data-cancel-revenue-edit]");
+      if (cancelRevenueEditBtn) {
+        state.editingRevenueId = null;
+        renderHistoricalRevenue();
+      }
+
+      const deleteRevenueBtn = event.target.closest("[data-delete-revenue]");
+      if (deleteRevenueBtn && confirm("這會刪除此筆歷史營收資料，確定刪除？")) {
+        deleteHistoricalRevenue(deleteRevenueBtn.dataset.deleteRevenue).catch(error => alert(error.message));
+      }
     });
 
     function applyRevenueSearch(value) {
@@ -2935,6 +3021,7 @@
       if (event.target.id === "companyRecordForm") createCompanyRecord(event).catch(error => alert(error.message));
       if (event.target.id === "studioExpenseForm") updateStudioExpenseModel(event).catch(error => alert(error.message));
       if (event.target.id === "historicalRevenueForm") createHistoricalRevenue(event).catch(error => alert(error.message));
+      if (event.target.matches("[data-edit-revenue]")) updateHistoricalRevenue(event).catch(error => alert(error.message));
       if (event.target.id === "userForm") createUser(event).catch(error => alert(error.message));
       if (event.target.matches("[data-work-types-for]")) updateEmployeeWorkTypes(event).catch(error => alert(error.message));
       if (event.target.matches("[data-base-salary-for]")) updateEmployeeBaseSalary(event).catch(error => alert(error.message));
