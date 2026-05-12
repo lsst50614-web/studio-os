@@ -1391,7 +1391,7 @@
       const employees = employeeList();
       const placeholder = includePlaceholder ? `<option value="">請選擇負責員工</option>` : "";
       return employees.length
-        ? `${placeholder}${employees.map(employee => `<option value="${esc(employee.name)}" ${employee.name === selected ? "selected" : ""}>${esc(employee.label)}${employee.workTypes.length ? ` · ${esc(employee.workTypes.join(" / "))}` : " · 未設定本月工作"}</option>`).join("")}`
+        ? `${placeholder}${employees.map(employee => `<option value="${esc(employee.name)}" ${employee.name === selected ? "selected" : ""}>${esc(employee.label)}</option>`).join("")}`
         : `<option value="">請先在行政頁建立員工帳號</option>`;
     }
 
