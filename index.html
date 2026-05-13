@@ -510,6 +510,41 @@
       gap: 8px;
     }
 
+    .foldout {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(16, 20, 26, .45);
+      overflow: hidden;
+    }
+
+    .foldout summary {
+      min-height: 44px;
+      padding: 10px 12px;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    .foldout summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .foldout summary::after {
+      content: "展開";
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .foldout[open] summary::after {
+      content: "收起";
+    }
+
+    .foldout-body {
+      padding: 0 12px 12px;
+      display: grid;
+      gap: 10px;
+    }
+
     .split-editor {
       border: 1px solid rgba(255, 255, 255, .08);
       background: rgba(255, 255, 255, .03);
@@ -965,6 +1000,24 @@
       }
     }
 
+    function splitRowEmployee(row) {
+      const selectedEmployee = row.querySelector("[data-split-employee]")?.value || "";
+      if (selectedEmployee === "__custom") return row.querySelector("[data-split-custom-employee]")?.value.trim() || "";
+      return selectedEmployee;
+    }
+
+    function collectSplitRows(root = document) {
+      return [...root.querySelectorAll("[data-split-row]")]
+        .map(row => ({
+          employee: splitRowEmployee(row),
+          workTypes: [...row.querySelectorAll("[data-split-work-type]:checked")].map(input => input.value),
+          method: row.querySelector("[data-split-method]")?.value || "固定金額",
+          value: Number(row.querySelector("[data-split-value]")?.value || 0),
+          note: row.querySelector("[data-split-note]")?.value.trim() || ""
+        }))
+        .filter(split => split.employee && split.workTypes.length && split.value > 0);
+    }
+
     async function api(path, options = {}) {
       const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
       if (state.user?.token) headers["X-Studio-Token"] = state.user.token;
@@ -1396,14 +1449,19 @@
       `).join("");
     }
 
-    function renderSplitRow(index, removable = false) {
+    function renderSplitRow(index, removable = false, split = null) {
       const employees = employeeList();
+      const splitEmployee = String(split?.employee || "");
+      const knownEmployee = employees.find(employee => cleanKey(employee.name) === cleanKey(splitEmployee));
+      const selectedEmployee = splitEmployee ? (knownEmployee ? knownEmployee.name : "__custom") : "";
+      const customEmployee = splitEmployee && !knownEmployee ? splitEmployee : "";
+      const selectedWorkTypes = new Set(splitWorkTypes(split));
       const employeeOptions = employees.length
-        ? `<option value="">選擇員工 / 外包</option>${employees.map(employee => `<option value="${esc(employee.name)}">${esc(employee.label)}</option>`).join("")}<option value="__custom">外包 / 其他付款對象</option>`
+        ? `<option value="">選擇員工 / 外包</option>${employees.map(employee => `<option value="${esc(employee.name)}" ${employee.name === selectedEmployee ? "selected" : ""}>${esc(employee.label)}</option>`).join("")}<option value="__custom" ${selectedEmployee === "__custom" ? "selected" : ""}>外包 / 其他付款對象</option>`
         : `<option value="">請先建立員工</option>`;
       const workOptions = Object.keys(caseTypes).map(type => `
         <label class="check-item">
-          <input type="checkbox" value="${esc(type)}" data-split-work-type>
+          <input type="checkbox" value="${esc(type)}" data-split-work-type ${selectedWorkTypes.has(type) ? "checked" : ""}>
           <span>${esc(type)}</span>
         </label>
       `).join("");
@@ -1419,9 +1477,9 @@
               <label for="splitEmployee${index}">員工</label>
               <select id="splitEmployee${index}" data-split-employee>${employeeOptions}</select>
             </div>
-            <div class="field hidden" data-custom-employee-field>
+            <div class="field ${selectedEmployee === "__custom" ? "" : "hidden"}" data-custom-employee-field>
               <label for="splitCustomEmployee${index}">外包 / 其他名稱</label>
-              <input id="splitCustomEmployee${index}" data-split-custom-employee placeholder="例如：外包歌手、樂手姓名">
+              <input id="splitCustomEmployee${index}" data-split-custom-employee value="${esc(customEmployee)}" placeholder="例如：外包歌手、樂手姓名">
             </div>
             <div class="field">
               <label>工作，可複選</label>
@@ -1432,18 +1490,18 @@
             <div class="field">
               <label for="splitMethod${index}">方式</label>
               <select id="splitMethod${index}" data-split-method>
-                <option>固定金額</option>
-                <option>百分比</option>
+                <option ${split?.method !== "百分比" ? "selected" : ""}>固定金額</option>
+                <option ${split?.method === "百分比" ? "selected" : ""}>百分比</option>
               </select>
             </div>
             <div class="field">
               <label for="splitValue${index}">金額 / %</label>
-              <input id="splitValue${index}" data-split-value type="number" min="0" inputmode="numeric" placeholder="例如 3000 或 30">
+              <input id="splitValue${index}" data-split-value type="number" min="0" inputmode="numeric" value="${esc(split?.value || "")}" placeholder="例如 3000 或 30">
             </div>
           </div>
           <div class="field split-note">
             <label for="splitNote${index}">備註</label>
-            <input id="splitNote${index}" data-split-note placeholder="例如：混音包辦、錄音 Session、協作拆分">
+            <input id="splitNote${index}" data-split-note value="${esc(split?.note || "")}" placeholder="例如：混音包辦、錄音 Session、協作拆分">
           </div>
         </div>
       `;
@@ -1760,6 +1818,17 @@
       container.insertAdjacentHTML("beforeend", renderSplitRow(Date.now(), true));
     }
 
+    function addFinancialSplitRow() {
+      const container = document.querySelector("#caseFinancialSplits");
+      if (!container) return;
+      const rows = [...container.querySelectorAll("[data-split-row]")];
+      if (rows.length >= 8) {
+        alert("最多可設定 8 筆成本 / 分潤明細。");
+        return;
+      }
+      container.insertAdjacentHTML("beforeend", renderSplitRow(`Financial${Date.now()}`, true));
+    }
+
     async function createCase(event) {
       event.preventDefault();
       const type = document.querySelector("#caseType").value;
@@ -1773,18 +1842,7 @@
         const podcastNote = `Podcast 單集：${channel || "未填頻道"} / ${episodeName || "未填集名"} / 錄音日期 ${recordedAt || "未填"} / 本集剪輯費 ${money(fee)} / 本集收款 ${money(revenue)} / 員工勾到已交付後列入老闆應付。`;
         notes = notes ? `${notes}\n${podcastNote}` : podcastNote;
       }
-      const splits = [...document.querySelectorAll("[data-split-row]")]
-        .map(row => {
-          const selectedEmployee = row.querySelector("[data-split-employee]").value;
-          return {
-            employee: selectedEmployee === "__custom" ? row.querySelector("[data-split-custom-employee]").value.trim() : selectedEmployee,
-            workTypes: [...row.querySelectorAll("[data-split-work-type]:checked")].map(input => input.value),
-            method: row.querySelector("[data-split-method]").value,
-            value: Number(row.querySelector("[data-split-value]").value || 0),
-            note: row.querySelector("[data-split-note]").value.trim()
-          };
-        })
-        .filter(split => split.employee && split.workTypes.length && split.value > 0);
+      const splits = collectSplitRows(document.querySelector("#caseForm"));
       const payload = {
         name: document.querySelector("#caseName").value.trim(),
         type,
@@ -2559,6 +2617,34 @@
       `).join("");
     }
 
+    function renderCaseFinancialEditor(item) {
+      if (!state.user.isBoss) return "";
+      const splits = item.splits?.length ? item.splits : [null];
+      return `
+        <details class="foldout">
+          <summary class="split"><strong>編輯金額 / 成本 / 拆帳</strong></summary>
+          <form id="caseFinancialForm" class="foldout-body" data-financial-for="${esc(item.id)}">
+            <p class="small">預估成本總額就是本案總成本；下面拆帳只是明細，不會再加一次。外包歌手、樂手也可以用「外包 / 其他付款對象」記在這裡。</p>
+            <div class="grid metrics">
+              <div class="field"><label for="modalQuote">報價金額</label><input id="modalQuote" type="number" min="0" inputmode="numeric" value="${Number(item.quote || 0)}"></div>
+              <div class="field"><label for="modalCost">預估成本總額</label><input id="modalCost" type="number" min="0" inputmode="numeric" value="${Number(item.cost || 0)}"></div>
+            </div>
+            <div class="${isHourlyCase(item.type) ? "grid metrics" : "hidden"}">
+              <div class="field"><label for="modalRentalHours">時數</label><input id="modalRentalHours" type="number" min="0" step="0.5" inputmode="decimal" value="${Number(item.rentalHours || 0)}"></div>
+              <div class="field"><label for="modalRentalHourlyRate">每小時金額</label><input id="modalRentalHourlyRate" type="number" min="0" inputmode="numeric" value="${Number(item.rentalHourlyRate || 0)}"></div>
+            </div>
+            <div class="${isHourlyCase(item.type) ? "field" : "hidden"}"><label for="modalRentalPricingNote">時數備註</label><input id="modalRentalPricingNote" value="${esc(item.rentalPricingNote || "")}" placeholder="例如：熟人價、員工棚租、前員工帶單"></div>
+            <div class="split"><h3>成本明細 / 分潤明細</h3><span class="small">可新增外包</span></div>
+            <div id="caseFinancialSplits" class="split-rows">
+              ${splits.map((split, index) => renderSplitRow(`Financial${index}`, index > 0, split)).join("")}
+            </div>
+            <button class="ghost" type="button" data-add-financial-split-row>新增成本明細</button>
+            <button class="primary" type="submit">儲存金額設定</button>
+          </form>
+        </details>
+      `;
+    }
+
     function renderReviewBand(item) {
       if (item.status === "需修改") {
         return `
@@ -2621,43 +2707,46 @@
       return `
         <div class="money-band">
           <div class="split"><h3>收款排程</h3><strong>${money(summary.paid)} / ${money(summary.totalDue || item.quote)}</strong></div>
-          <form id="paymentScheduleForm" class="delivery-form" data-payment-case="${esc(item.id)}">
-            <div class="split"><h3>快速建立分期</h3><span class="small">例：今天收 2000，6/11、7/11 再各收 2000</span></div>
-            <div class="grid metrics">
-              <div class="field"><label for="quickInstallmentAmount">每期金額</label><input id="quickInstallmentAmount" type="number" min="0" inputmode="numeric" value="${Math.round(Number(item.quote || 0) / 3) || ""}"></div>
-              <div class="field"><label for="quickMethod">收款方式</label><select id="quickMethod"><option>現金</option><option>轉帳</option><option>Line Pay</option><option>其他</option></select></div>
-            </div>
-            <div class="grid metrics">
-              <div class="field"><label for="quickFirstDate">第一期日期</label><input id="quickFirstDate" type="date" value="${localDateString()}"></div>
-              <div class="field"><label for="quickFirstStatus">第一期狀態</label><select id="quickFirstStatus"><option>已收</option><option>未收</option></select></div>
-            </div>
-            <div class="grid metrics">
-              <div class="field"><label for="quickSecondDate">第二期日期</label><input id="quickSecondDate" type="date"></div>
-              <div class="field"><label for="quickThirdDate">第三期日期</label><input id="quickThirdDate" type="date"></div>
-            </div>
-            <button class="ghost" type="button" data-create-installments="${esc(item.id)}">快速產生分期</button>
-            <div class="split"><h3>單筆新增</h3></div>
-            <div class="grid metrics">
-              <div class="field"><label for="paymentTitle">款項名稱</label><input id="paymentTitle" required placeholder="訂金、尾款、第一期"></div>
-              <div class="field"><label for="paymentDueDate">應收日期</label><input id="paymentDueDate" type="date" required></div>
-            </div>
-            <div class="grid metrics">
-              <div class="field"><label for="paymentAmount">應收金額</label><input id="paymentAmount" type="number" min="0" inputmode="numeric" required></div>
-              <div class="field">
-                <label for="paymentStatus">狀態</label>
-                <select id="paymentStatus"><option>未收</option><option>已收</option></select>
+          <details class="foldout">
+            <summary class="split"><strong>新增或快速建立分期</strong></summary>
+            <form id="paymentScheduleForm" class="foldout-body" data-payment-case="${esc(item.id)}">
+              <div class="split"><h3>快速建立分期</h3><span class="small">例：今天收 2000，6/11、7/11 再各收 2000</span></div>
+              <div class="grid metrics">
+                <div class="field"><label for="quickInstallmentAmount">每期金額</label><input id="quickInstallmentAmount" type="number" min="0" inputmode="numeric" value="${Math.round(Number(item.quote || 0) / 3) || ""}"></div>
+                <div class="field"><label for="quickMethod">收款方式</label><select id="quickMethod"><option>現金</option><option>轉帳</option><option>Line Pay</option><option>其他</option></select></div>
               </div>
-            </div>
-            <div class="grid metrics">
-              <div class="field"><label for="paymentPaidDate">實收日期</label><input id="paymentPaidDate" type="date"></div>
-              <div class="field">
-                <label for="paymentMethod">收款方式</label>
-                <select id="paymentMethod"><option>現金</option><option>轉帳</option><option>Line Pay</option><option>其他</option></select>
+              <div class="grid metrics">
+                <div class="field"><label for="quickFirstDate">第一期日期</label><input id="quickFirstDate" type="date" value="${localDateString()}"></div>
+                <div class="field"><label for="quickFirstStatus">第一期狀態</label><select id="quickFirstStatus"><option>已收</option><option>未收</option></select></div>
               </div>
-            </div>
-            <div class="field"><label for="paymentNotes">備註</label><input id="paymentNotes" placeholder="合約頭款、尾款、匯款帳號等"></div>
-            <button class="primary" type="submit">新增收款</button>
-          </form>
+              <div class="grid metrics">
+                <div class="field"><label for="quickSecondDate">第二期日期</label><input id="quickSecondDate" type="date"></div>
+                <div class="field"><label for="quickThirdDate">第三期日期</label><input id="quickThirdDate" type="date"></div>
+              </div>
+              <button class="ghost" type="button" data-create-installments="${esc(item.id)}">快速產生分期</button>
+              <div class="split"><h3>單筆新增</h3></div>
+              <div class="grid metrics">
+                <div class="field"><label for="paymentTitle">款項名稱</label><input id="paymentTitle" required placeholder="訂金、尾款、第一期"></div>
+                <div class="field"><label for="paymentDueDate">應收日期</label><input id="paymentDueDate" type="date" required></div>
+              </div>
+              <div class="grid metrics">
+                <div class="field"><label for="paymentAmount">應收金額</label><input id="paymentAmount" type="number" min="0" inputmode="numeric" required></div>
+                <div class="field">
+                  <label for="paymentStatus">狀態</label>
+                  <select id="paymentStatus"><option>未收</option><option>已收</option></select>
+                </div>
+              </div>
+              <div class="grid metrics">
+                <div class="field"><label for="paymentPaidDate">實收日期</label><input id="paymentPaidDate" type="date"></div>
+                <div class="field">
+                  <label for="paymentMethod">收款方式</label>
+                  <select id="paymentMethod"><option>現金</option><option>轉帳</option><option>Line Pay</option><option>其他</option></select>
+                </div>
+              </div>
+              <div class="field"><label for="paymentNotes">備註</label><input id="paymentNotes" placeholder="合約頭款、尾款、匯款帳號等"></div>
+              <button class="primary" type="submit">新增收款</button>
+            </form>
+          </details>
           <div class="grid">
             ${rows.length ? rows.map(payment => `
               <div class="finance-row">
@@ -2747,6 +2836,7 @@
           <div class="split"><span>預估利潤</span><strong>${money(caseProfit(item))}</strong></div>
           <div class="section-title"><h3>拆帳明細</h3></div>
           ${renderSplitSummary(item)}
+          ${renderCaseFinancialEditor(item)}
         </div>
         ${renderPaymentSchedules(item)}
         <div class="${!canSeeMoney && ownSplits.length ? "money-band" : "hidden"}">
@@ -2831,6 +2921,26 @@
         body: JSON.stringify(authPayload({
           role: state.user.isBoss ? "owner" : "staff",
           owner: document.querySelector("#modalCaseOwner").value
+        }))
+      });
+      state.cases = state.cases.map(entry => entry.id === id ? item : entry);
+      renderApp();
+      openCase(id);
+    }
+
+    async function updateCaseFinancials(event) {
+      event.preventDefault();
+      const id = event.target.dataset.financialFor;
+      const item = await api(`/api/cases/${id}/financials`, {
+        method: "PATCH",
+        body: JSON.stringify(authPayload({
+          role: state.user.isBoss ? "owner" : "staff",
+          quote: Number(document.querySelector("#modalQuote").value || 0),
+          cost: Number(document.querySelector("#modalCost").value || 0),
+          rentalHours: Number(document.querySelector("#modalRentalHours")?.value || 0),
+          rentalHourlyRate: Number(document.querySelector("#modalRentalHourlyRate")?.value || 0),
+          rentalPricingNote: document.querySelector("#modalRentalPricingNote")?.value.trim() || "",
+          splits: collectSplitRows(event.target)
         }))
       });
       state.cases = state.cases.map(entry => entry.id === id ? item : entry);
@@ -2969,6 +3079,9 @@
       const addSplitBtn = event.target.closest("[data-add-split-row]");
       if (addSplitBtn) addSplitRow();
 
+      const addFinancialSplitBtn = event.target.closest("[data-add-financial-split-row]");
+      if (addFinancialSplitBtn) addFinancialSplitRow();
+
       const removeSplitBtn = event.target.closest("[data-remove-split-row]");
       if (removeSplitBtn) removeSplitBtn.closest("[data-split-row]")?.remove();
 
@@ -3096,6 +3209,7 @@
       if (event.target.id === "reviewForm") updateReview(event).catch(error => alert(error.message));
       if (event.target.id === "caseNotesForm") updateCaseNotes(event).catch(error => alert(error.message));
       if (event.target.id === "caseOwnerForm") updateCaseOwner(event).catch(error => alert(error.message));
+      if (event.target.id === "caseFinancialForm") updateCaseFinancials(event).catch(error => alert(error.message));
       if (event.target.id === "deliveryForm") updateDelivery(event).catch(error => alert(error.message));
       if (event.target.id === "paymentScheduleForm") createPaymentSchedule(event).catch(error => alert(error.message));
     });

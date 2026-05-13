@@ -1245,6 +1245,48 @@ app.patch("/api/cases/:id/owner", async (req, res, next) => {
   }
 });
 
+app.patch("/api/cases/:id/financials", async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    if (!(await requireBoss(body.requesterId, requestToken(req), res, "只有老闆可以更新案件金額"))) return;
+
+    const quote = Math.round(cleanNumber(body.quote));
+    const cost = Math.round(cleanNumber(body.cost));
+    const rentalHours = cleanNumber(body.rentalHours);
+    const rentalHourlyRate = Math.round(cleanNumber(body.rentalHourlyRate));
+    const splits = normalizedSplits(body.splits, quote);
+
+    const { rows } = await pool.query(
+      `UPDATE studio_cases
+       SET quote = $1,
+           cost = $2,
+           rental_hours = $3,
+           rental_hourly_rate = $4,
+           rental_pricing_note = $5,
+           splits = $6::jsonb,
+           updated_at = now()
+       WHERE id = $7
+       RETURNING *`,
+      [
+        quote,
+        cost,
+        rentalHours,
+        rentalHourlyRate,
+        cleanText(body.rentalPricingNote),
+        JSON.stringify(splits),
+        req.params.id
+      ]
+    );
+    if (!rows[0]) {
+      res.status(404).json({ error: "找不到案件" });
+      return;
+    }
+    res.json(toCase(rows[0]));
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.patch("/api/cases/:id/checklist", async (req, res, next) => {
   try {
     const index = Number(req.body?.index);
