@@ -1829,6 +1829,23 @@
       container.insertAdjacentHTML("beforeend", renderSplitRow(`Financial${Date.now()}`, true));
     }
 
+    function openFinancialEditor(action = "") {
+      const foldout = document.querySelector("#caseFinancialFoldout");
+      const container = document.querySelector("#caseFinancialSplits");
+      if (!foldout || !container) return;
+      foldout.open = true;
+      if (action === "add") {
+        const rows = [...container.querySelectorAll("[data-split-row]")];
+        const hasEmptyRow = rows.some(row =>
+          !splitRowEmployee(row) &&
+          !row.querySelector("[data-split-value]")?.value &&
+          ![...row.querySelectorAll("[data-split-work-type]:checked")].length
+        );
+        if (!hasEmptyRow) addFinancialSplitRow();
+      }
+      foldout.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+
     async function createCase(event) {
       event.preventDefault();
       const type = document.querySelector("#caseType").value;
@@ -2621,8 +2638,8 @@
       if (!state.user.isBoss) return "";
       const splits = item.splits?.length ? item.splits : [null];
       return `
-        <details class="foldout">
-          <summary class="split"><strong>編輯金額 / 成本 / 拆帳</strong></summary>
+        <details id="caseFinancialFoldout" class="foldout">
+          <summary class="split"><strong>編輯金額 / 新增分潤人員</strong></summary>
           <form id="caseFinancialForm" class="foldout-body" data-financial-for="${esc(item.id)}">
             <p class="small">預估成本總額就是本案總成本；下面拆帳只是明細，不會再加一次。外包歌手、樂手也可以用「外包 / 其他付款對象」記在這裡。</p>
             <div class="grid metrics">
@@ -2638,7 +2655,7 @@
             <div id="caseFinancialSplits" class="split-rows">
               ${splits.map((split, index) => renderSplitRow(`Financial${index}`, index > 0, split)).join("")}
             </div>
-            <button class="ghost" type="button" data-add-financial-split-row>新增成本明細</button>
+            <button class="primary" type="button" data-add-financial-split-row>新增分潤人員 / 外包成本</button>
             <button class="primary" type="submit">儲存金額設定</button>
           </form>
         </details>
@@ -2834,7 +2851,10 @@
           <div class="split"><span>已列明成本</span><strong>${money(caseSplitTotal(item))}</strong></div>
           <div class="split"><span>未列明成本</span><strong>${money(unassignedCost(item))}</strong></div>
           <div class="split"><span>預估利潤</span><strong>${money(caseProfit(item))}</strong></div>
-          <div class="section-title"><h3>拆帳明細</h3></div>
+          <div class="section-title">
+            <h3>拆帳明細</h3>
+            <button class="ghost" type="button" data-open-financial-editor="add">新增分潤 / 外包</button>
+          </div>
           ${renderSplitSummary(item)}
           ${renderCaseFinancialEditor(item)}
         </div>
@@ -3081,6 +3101,9 @@
 
       const addFinancialSplitBtn = event.target.closest("[data-add-financial-split-row]");
       if (addFinancialSplitBtn) addFinancialSplitRow();
+
+      const openFinancialEditorBtn = event.target.closest("[data-open-financial-editor]");
+      if (openFinancialEditorBtn) openFinancialEditor(openFinancialEditorBtn.dataset.openFinancialEditor);
 
       const removeSplitBtn = event.target.closest("[data-remove-split-row]");
       if (removeSplitBtn) removeSplitBtn.closest("[data-split-row]")?.remove();
