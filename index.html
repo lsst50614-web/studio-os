@@ -1031,7 +1031,7 @@
 
     function splitRowEmployee(row) {
       const selectedEmployee = row.querySelector("[data-split-employee]")?.value || "";
-      if (selectedEmployee === "__custom") return row.querySelector("[data-split-custom-employee]")?.value.trim() || "";
+      if (selectedEmployee === "__custom") return row.querySelector("[data-split-custom-employee]")?.value.trim() || "外包";
       return selectedEmployee;
     }
 
@@ -1507,8 +1507,8 @@
               <select id="splitEmployee${index}" data-split-employee>${employeeOptions}</select>
             </div>
             <div class="field ${selectedEmployee === "__custom" ? "" : "hidden"}" data-custom-employee-field>
-              <label for="splitCustomEmployee${index}">外包 / 其他名稱</label>
-              <input id="splitCustomEmployee${index}" data-split-custom-employee value="${esc(customEmployee)}" placeholder="例如：外包歌手、樂手姓名">
+              <label for="splitCustomEmployee${index}">外包 / 其他名稱（可不填）</label>
+              <input id="splitCustomEmployee${index}" data-split-custom-employee value="${esc(customEmployee)}" placeholder="不填會自動記成外包">
             </div>
             <div class="field">
               <label>工作，可複選</label>
