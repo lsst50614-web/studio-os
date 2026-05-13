@@ -745,6 +745,7 @@
       "錄音": ["前製會議", "錄音 Session 1", "錄音 Session 2", "人聲剪輯", "初混確認", "交件"],
       "混音": ["素材確認", "初混版本", "客戶試聽", "修改版本", "最終確認", "交件"],
       "編曲": ["風格確認", "Demo 製作", "客戶試聽", "編曲完稿", "人聲配合", "交件"],
+      "包案製作": ["需求確認", "前製安排", "錄音 / 製作", "混音 / 修正", "客戶確認", "交件"],
       "母帶": ["素材接收", "聲音分析", "母帶處理", "試聽確認", "最終版本", "交件"],
       "廣告配樂": ["廣告簡報", "風格確認", "初版配樂", "影片對位", "修改", "交件"],
       "電影配樂": ["劇本分析", "音樂風格會議", "主題曲創作", "配樂錄製", "混音", "交件"],
@@ -1397,6 +1398,7 @@
             <span class="small">分潤人員</span>
             ${removable ? `<button class="ghost" type="button" data-remove-split-row>刪除</button>` : ""}
           </div>
+          <p class="small">同一位員工做多項工作就多勾幾個，金額仍是一筆包案金額。</p>
           <div class="grid metrics">
             <div class="field">
               <label for="splitEmployee${index}">員工</label>
@@ -1501,7 +1503,7 @@
             <div class="field"><label for="hourlyHours">時數</label><input id="hourlyHours" type="number" min="0" step="0.5" inputmode="decimal" value="0"></div>
             <div class="field"><label for="hourlyRate">每小時金額</label><input id="hourlyRate" type="number" min="0" inputmode="numeric" value="0"></div>
           </div>
-          <p class="small">如果要 7/3 拆，分潤方式選百分比並填 70；前員工帶單選項會自動幫你填第一筆 70%。</p>
+          <p class="small">這塊只給時數型案件使用。包案製作請直接填報價、其他成本，員工分潤用固定金額鎖住。</p>
         </div>
       `;
     }
@@ -1699,6 +1701,7 @@
         <form id="caseForm" class="panel">
           <div class="field"><label for="caseName">案件名稱</label><input id="caseName" required placeholder="案件名稱"></div>
           <div class="field"><label for="caseType">案件種類</label><select id="caseType">${workOptions.map(type => `<option>${type}</option>`).join("")}</select></div>
+          <p class="small">如果一張案子包含錄音、混音、編曲等多個工作，案件種類建議選「包案製作」，再到下面分潤設定勾實際工作項目。</p>
           <div class="field"><label for="client">客戶名稱</label><input id="client" required placeholder="客戶或品牌名稱"></div>
           <div class="field"><label for="owner">主要負責人</label><select id="owner" required>${employeeOptions("", true)}</select></div>
           <div class="grid metrics">
@@ -1709,7 +1712,7 @@
           ${renderPodcastPanel()}
           ${renderHourlyPanel()}
           <div class="field ${canSeeMoney ? "" : "hidden"}"><label for="quote">報價金額</label><input id="quote" type="number" min="0" inputmode="numeric" value="0"></div>
-          <div class="field ${canSeeMoney ? "" : "hidden"}"><label for="cost">預估成本</label><input id="cost" type="number" min="0" inputmode="numeric" value="0"></div>
+          <div class="field ${canSeeMoney ? "" : "hidden"}"><label for="cost">其他預估成本</label><input id="cost" type="number" min="0" inputmode="numeric" value="0"><p class="small">不含員工分潤。員工要拿的錢請在下面「案件分潤設定」填，避免重複扣成本。</p></div>
           ${renderSplitEditor()}
           <div class="field"><label for="driveFolderUrl">Google Drive 工作資料夾</label><input id="driveFolderUrl" type="url" inputmode="url" placeholder="貼上內部工作資料夾連結"></div>
           <div class="field"><label for="sourceMaterialUrl">客戶素材連結</label><input id="sourceMaterialUrl" type="url" inputmode="url" placeholder="貼上客戶上傳素材連結"></div>
@@ -2393,8 +2396,9 @@
             <p class="small">${esc(deliveryText(item))}</p>
             ${isHourlyCase(item.type) ? `<p class="small">${esc(item.type)}：${Number(item.rentalHours || 0)} 小時 · ${money(item.rentalHourlyRate || 0)} / 小時 · ${esc(item.rentalPricingNote || "自訂價格")}</p>` : ""}
             <div class="split"><span>報價</span><strong>${money(item.quote)}</strong></div>
-            <div class="split"><span>預估成本</span><strong>${money(item.cost)}</strong></div>
+            <div class="split"><span>其他成本</span><strong>${money(item.cost)}</strong></div>
             <div class="split"><span>分潤支出</span><strong>${money(caseSplitTotal(item))}</strong></div>
+            <div class="split"><span>總成本</span><strong>${money(Number(item.cost || 0) + caseSplitTotal(item))}</strong></div>
             <div class="split"><span>預估利潤</span><strong>${money(caseProfit(item))}</strong></div>
             <div class="split"><span>收款進度</span><strong>${money(paymentSummary(paymentsForCase(item.id)).paid)} / ${money(paymentSummary(paymentsForCase(item.id)).totalDue || item.quote)}</strong></div>
             ${(item.splits || []).length ? `<p class="small">拆帳：${item.splits.map(split => `${esc(split.employee)} ${esc(splitWorkTypeLabel(split))} ${esc(splitMethodLabel(split))}`).join(" · ")}</p>` : `<p class="small">尚未設定拆帳</p>`}
@@ -2715,8 +2719,9 @@
         ${renderReviewBand(item)}
         <div class="${canSeeMoney ? "money-band" : "hidden"}">
           <div class="split"><span>報價金額</span><strong>${money(item.quote)}</strong></div>
-          <div class="split"><span>預估成本</span><strong>${money(item.cost)}</strong></div>
+          <div class="split"><span>其他成本</span><strong>${money(item.cost)}</strong></div>
           <div class="split"><span>分潤支出</span><strong>${money(caseSplitTotal(item))}</strong></div>
+          <div class="split"><span>總成本</span><strong>${money(Number(item.cost || 0) + caseSplitTotal(item))}</strong></div>
           <div class="split"><span>預估利潤</span><strong>${money(caseProfit(item))}</strong></div>
           <div class="section-title"><h3>拆帳明細</h3></div>
           ${renderSplitSummary(item)}
