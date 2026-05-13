@@ -903,7 +903,11 @@
     }
 
     function caseProfit(item) {
-      return Number(item.quote || 0) - Number(item.cost || 0) - caseSplitTotal(item);
+      return Number(item.quote || 0) - Number(item.cost || 0);
+    }
+
+    function unassignedCost(item) {
+      return Number(item.cost || 0) - caseSplitTotal(item);
     }
 
     function aliasesForCurrentUser() {
@@ -948,6 +952,17 @@
       row.querySelectorAll("[data-split-work-type]").forEach(input => {
         input.checked = selected.has(input.value);
       });
+    }
+
+    function updateCustomEmployeeField(select) {
+      const row = select.closest("[data-split-row]");
+      const field = row?.querySelector("[data-custom-employee-field]");
+      if (!field) return;
+      field.classList.toggle("hidden", select.value !== "__custom");
+      if (select.value !== "__custom") {
+        const input = field.querySelector("[data-split-custom-employee]");
+        if (input) input.value = "";
+      }
     }
 
     async function api(path, options = {}) {
@@ -1384,7 +1399,7 @@
     function renderSplitRow(index, removable = false) {
       const employees = employeeList();
       const employeeOptions = employees.length
-        ? `<option value="">選擇員工</option>${employees.map(employee => `<option value="${esc(employee.name)}">${esc(employee.label)}</option>`).join("")}`
+        ? `<option value="">選擇員工 / 外包</option>${employees.map(employee => `<option value="${esc(employee.name)}">${esc(employee.label)}</option>`).join("")}<option value="__custom">外包 / 其他付款對象</option>`
         : `<option value="">請先建立員工</option>`;
       const workOptions = Object.keys(caseTypes).map(type => `
         <label class="check-item">
@@ -1403,6 +1418,10 @@
             <div class="field">
               <label for="splitEmployee${index}">員工</label>
               <select id="splitEmployee${index}" data-split-employee>${employeeOptions}</select>
+            </div>
+            <div class="field hidden" data-custom-employee-field>
+              <label for="splitCustomEmployee${index}">外包 / 其他名稱</label>
+              <input id="splitCustomEmployee${index}" data-split-custom-employee placeholder="例如：外包歌手、樂手姓名">
             </div>
             <div class="field">
               <label>工作，可複選</label>
@@ -1503,7 +1522,7 @@
             <div class="field"><label for="hourlyHours">時數</label><input id="hourlyHours" type="number" min="0" step="0.5" inputmode="decimal" value="0"></div>
             <div class="field"><label for="hourlyRate">每小時金額</label><input id="hourlyRate" type="number" min="0" inputmode="numeric" value="0"></div>
           </div>
-          <p class="small">這塊只給時數型案件使用。包案製作請直接填報價、其他成本，員工分潤用固定金額鎖住。</p>
+          <p class="small">這塊只給時數型案件使用。包案製作請直接填報價、成本總額，員工或外包款項用固定金額做明細。</p>
         </div>
       `;
     }
@@ -1712,7 +1731,7 @@
           ${renderPodcastPanel()}
           ${renderHourlyPanel()}
           <div class="field ${canSeeMoney ? "" : "hidden"}"><label for="quote">報價金額</label><input id="quote" type="number" min="0" inputmode="numeric" value="0"></div>
-          <div class="field ${canSeeMoney ? "" : "hidden"}"><label for="cost">其他預估成本</label><input id="cost" type="number" min="0" inputmode="numeric" value="0"><p class="small">不含員工分潤。員工要拿的錢請在下面「案件分潤設定」填，避免重複扣成本。</p></div>
+          <div class="field ${canSeeMoney ? "" : "hidden"}"><label for="cost">預估成本總額</label><input id="cost" type="number" min="0" inputmode="numeric" value="0"><p class="small">這裡填本案全部成本，例如員工、外包歌手、樂手等合計；下面分潤設定只是成本明細，不會再額外扣一次。</p></div>
           ${renderSplitEditor()}
           <div class="field"><label for="driveFolderUrl">Google Drive 工作資料夾</label><input id="driveFolderUrl" type="url" inputmode="url" placeholder="貼上內部工作資料夾連結"></div>
           <div class="field"><label for="sourceMaterialUrl">客戶素材連結</label><input id="sourceMaterialUrl" type="url" inputmode="url" placeholder="貼上客戶上傳素材連結"></div>
@@ -1755,13 +1774,16 @@
         notes = notes ? `${notes}\n${podcastNote}` : podcastNote;
       }
       const splits = [...document.querySelectorAll("[data-split-row]")]
-        .map(row => ({
-          employee: row.querySelector("[data-split-employee]").value,
-          workTypes: [...row.querySelectorAll("[data-split-work-type]:checked")].map(input => input.value),
-          method: row.querySelector("[data-split-method]").value,
-          value: Number(row.querySelector("[data-split-value]").value || 0),
-          note: row.querySelector("[data-split-note]").value.trim()
-        }))
+        .map(row => {
+          const selectedEmployee = row.querySelector("[data-split-employee]").value;
+          return {
+            employee: selectedEmployee === "__custom" ? row.querySelector("[data-split-custom-employee]").value.trim() : selectedEmployee,
+            workTypes: [...row.querySelectorAll("[data-split-work-type]:checked")].map(input => input.value),
+            method: row.querySelector("[data-split-method]").value,
+            value: Number(row.querySelector("[data-split-value]").value || 0),
+            note: row.querySelector("[data-split-note]").value.trim()
+          };
+        })
         .filter(split => split.employee && split.workTypes.length && split.value > 0);
       const payload = {
         name: document.querySelector("#caseName").value.trim(),
@@ -2396,9 +2418,9 @@
             <p class="small">${esc(deliveryText(item))}</p>
             ${isHourlyCase(item.type) ? `<p class="small">${esc(item.type)}：${Number(item.rentalHours || 0)} 小時 · ${money(item.rentalHourlyRate || 0)} / 小時 · ${esc(item.rentalPricingNote || "自訂價格")}</p>` : ""}
             <div class="split"><span>報價</span><strong>${money(item.quote)}</strong></div>
-            <div class="split"><span>其他成本</span><strong>${money(item.cost)}</strong></div>
-            <div class="split"><span>分潤支出</span><strong>${money(caseSplitTotal(item))}</strong></div>
-            <div class="split"><span>總成本</span><strong>${money(Number(item.cost || 0) + caseSplitTotal(item))}</strong></div>
+            <div class="split"><span>預估成本總額</span><strong>${money(item.cost)}</strong></div>
+            <div class="split"><span>已列明成本</span><strong>${money(caseSplitTotal(item))}</strong></div>
+            <div class="split"><span>未列明成本</span><strong>${money(unassignedCost(item))}</strong></div>
             <div class="split"><span>預估利潤</span><strong>${money(caseProfit(item))}</strong></div>
             <div class="split"><span>收款進度</span><strong>${money(paymentSummary(paymentsForCase(item.id)).paid)} / ${money(paymentSummary(paymentsForCase(item.id)).totalDue || item.quote)}</strong></div>
             ${(item.splits || []).length ? `<p class="small">拆帳：${item.splits.map(split => `${esc(split.employee)} ${esc(splitWorkTypeLabel(split))} ${esc(splitMethodLabel(split))}`).join(" · ")}</p>` : `<p class="small">尚未設定拆帳</p>`}
@@ -2719,9 +2741,9 @@
         ${renderReviewBand(item)}
         <div class="${canSeeMoney ? "money-band" : "hidden"}">
           <div class="split"><span>報價金額</span><strong>${money(item.quote)}</strong></div>
-          <div class="split"><span>其他成本</span><strong>${money(item.cost)}</strong></div>
-          <div class="split"><span>分潤支出</span><strong>${money(caseSplitTotal(item))}</strong></div>
-          <div class="split"><span>總成本</span><strong>${money(Number(item.cost || 0) + caseSplitTotal(item))}</strong></div>
+          <div class="split"><span>預估成本總額</span><strong>${money(item.cost)}</strong></div>
+          <div class="split"><span>已列明成本</span><strong>${money(caseSplitTotal(item))}</strong></div>
+          <div class="split"><span>未列明成本</span><strong>${money(unassignedCost(item))}</strong></div>
           <div class="split"><span>預估利潤</span><strong>${money(caseProfit(item))}</strong></div>
           <div class="section-title"><h3>拆帳明細</h3></div>
           ${renderSplitSummary(item)}
@@ -3035,6 +3057,9 @@
     });
 
     document.addEventListener("change", event => {
+      if (event.target.matches("[data-split-employee]")) {
+        updateCustomEmployeeField(event.target);
+      }
       if (event.target.matches("[data-check]")) {
         updateChecklist(event.target.dataset.check, Number(event.target.dataset.index), event.target.checked).catch(error => alert(error.message));
       }
@@ -3042,6 +3067,13 @@
         updateStatus(event.target.dataset.statusFor, event.target.value).catch(error => alert(error.message));
       }
     });
+
+    document.addEventListener("wheel", event => {
+      if (event.target.matches("input[type='number']") && document.activeElement === event.target) {
+        event.preventDefault();
+        event.target.blur();
+      }
+    }, { passive: false });
 
     els.loginForm.addEventListener("submit", login);
     els.logoutBtn.addEventListener("click", logout);
