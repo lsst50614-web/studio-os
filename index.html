@@ -488,6 +488,11 @@
       margin-top: 10px;
     }
 
+    .split-work-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+    }
+
     .check-item {
       min-height: 46px;
       display: flex;
@@ -497,6 +502,20 @@
       border: 1px solid var(--line);
       border-radius: 8px;
       background: var(--surface);
+    }
+
+    .split-work-grid .check-item {
+      min-height: 36px;
+      padding: 7px 8px;
+      gap: 7px;
+      font-size: 12px;
+      line-height: 1.25;
+    }
+
+    .split-work-grid .check-item input {
+      width: 16px;
+      height: 16px;
+      min-height: 16px;
     }
 
     .check-item input {
@@ -1493,7 +1512,7 @@
             </div>
             <div class="field">
               <label>工作，可複選</label>
-              <div class="checklist" data-split-work-types>${workOptions}</div>
+              <div class="checklist split-work-grid" data-split-work-types>${workOptions}</div>
             </div>
           </div>
           <div class="grid metrics">
@@ -2958,24 +2977,37 @@
       openCase(id);
     }
 
-    async function updateCaseFinancials(event) {
-      event.preventDefault();
-      const id = event.target.dataset.financialFor;
+    async function saveCaseFinancials(form, { rerender = true, reopen = true } = {}) {
+      const id = form.dataset.financialFor;
       const item = await api(`/api/cases/${id}/financials`, {
         method: "PATCH",
         body: JSON.stringify(authPayload({
           role: state.user.isBoss ? "owner" : "staff",
-          quote: Number(document.querySelector("#modalQuote").value || 0),
-          cost: Number(document.querySelector("#modalCost").value || 0),
-          rentalHours: Number(document.querySelector("#modalRentalHours")?.value || 0),
-          rentalHourlyRate: Number(document.querySelector("#modalRentalHourlyRate")?.value || 0),
-          rentalPricingNote: document.querySelector("#modalRentalPricingNote")?.value.trim() || "",
-          splits: collectSplitRows(event.target)
+          quote: Number(form.querySelector("#modalQuote")?.value || 0),
+          cost: Number(form.querySelector("#modalCost")?.value || 0),
+          rentalHours: Number(form.querySelector("#modalRentalHours")?.value || 0),
+          rentalHourlyRate: Number(form.querySelector("#modalRentalHourlyRate")?.value || 0),
+          rentalPricingNote: form.querySelector("#modalRentalPricingNote")?.value.trim() || "",
+          splits: collectSplitRows(form)
         }))
       });
       state.cases = state.cases.map(entry => entry.id === id ? item : entry);
-      renderApp();
-      openCase(id);
+      if (rerender) renderApp();
+      if (reopen) openCase(id);
+      return item;
+    }
+
+    async function updateCaseFinancials(event) {
+      event.preventDefault();
+      await saveCaseFinancials(event.target);
+    }
+
+    async function closeModalWithFinancialSave() {
+      const form = document.querySelector("#caseFinancialForm");
+      if (form && state.user?.isBoss) {
+        await saveCaseFinancials(form, { rerender: true, reopen: false });
+      }
+      closeModal();
     }
 
     async function updateDelivery(event) {
@@ -3119,7 +3151,10 @@
       if (removeSplitBtn) removeSplitBtn.closest("[data-split-row]")?.remove();
 
       const closeBtn = event.target.closest("[data-close-modal]");
-      if (closeBtn) closeModal();
+      if (closeBtn) {
+        closeModalWithFinancialSave().catch(error => alert(error.message));
+        return;
+      }
 
       const deleteBtn = event.target.closest("[data-delete]");
       if (deleteBtn && confirm("這會從 Zeabur 資料庫刪除此案件，確定刪除？")) {
