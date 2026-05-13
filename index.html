@@ -212,6 +212,13 @@
       padding: 0 12px;
     }
 
+    .compact-action {
+      min-height: 32px;
+      padding: 0 10px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
     .error {
       color: var(--red);
       min-height: 20px;
@@ -2655,7 +2662,7 @@
             <div id="caseFinancialSplits" class="split-rows">
               ${splits.map((split, index) => renderSplitRow(`Financial${index}`, index > 0, split)).join("")}
             </div>
-            <button class="primary" type="button" data-add-financial-split-row>新增分潤人員 / 外包成本</button>
+            <button class="ghost compact-action" type="button" data-add-financial-split-row>新增分潤人員 / 外包成本</button>
             <button class="primary" type="submit">儲存金額設定</button>
           </form>
         </details>
@@ -2853,7 +2860,7 @@
           <div class="split"><span>預估利潤</span><strong>${money(caseProfit(item))}</strong></div>
           <div class="section-title">
             <h3>拆帳明細</h3>
-            <button class="ghost" type="button" data-open-financial-editor="add">新增分潤 / 外包</button>
+            <button class="ghost compact-action" type="button" data-open-financial-editor="add">新增分潤 / 外包</button>
           </div>
           ${renderSplitSummary(item)}
           ${renderCaseFinancialEditor(item)}
