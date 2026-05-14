@@ -698,6 +698,45 @@
       gap: 8px;
     }
 
+    .revenue-row {
+      padding: 10px;
+      gap: 7px;
+    }
+
+    .revenue-head h3 {
+      font-size: 14px;
+    }
+
+    .revenue-money {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px 12px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .revenue-money strong {
+      color: var(--text);
+    }
+
+    .revenue-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .revenue-actions .ghost {
+      min-height: 32px;
+      font-size: 12px;
+    }
+
+    .revenue-editor {
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+      margin-top: 2px;
+    }
+
     .receipt-thumb {
       width: 100%;
       max-height: 220px;
@@ -2386,19 +2425,23 @@
     function renderHistoricalRevenueCard(item) {
       const editing = String(state.editingRevenueId) === String(item.id);
       return `
-        <div class="finance-row">
-          <div class="split"><h3>${esc(item.clientName)}</h3><span class="badge status-${item.status === "ongoing" ? "製作中" : "已完成"}">${revenueStatusText(item.status)}</span></div>
-          <p class="small">${esc(item.projectDate)} · ${esc(item.phone || "未填電話")}</p>
-          <p class="muted">${esc(item.projectName)}</p>
-          <div class="split"><span>總金額</span><strong>${money(item.totalAmount)}</strong></div>
-          <div class="split"><span>已收款</span><strong>${money(item.receivedAmount)}</strong></div>
-          <div class="split"><span>未收款</span><strong>${money(item.unpaidAmount)}</strong></div>
+        <div class="finance-row revenue-row">
+          <div class="split revenue-head">
+            <h3>${esc(item.projectName)}</h3>
+            <span class="badge status-${item.status === "ongoing" ? "製作中" : "已完成"}">${revenueStatusText(item.status)}</span>
+          </div>
+          <p class="small">${esc(item.clientName)} · ${esc(item.projectDate)} · ${esc(item.phone || "未填電話")}</p>
+          <div class="revenue-money">
+            <span>總 <strong>${money(item.totalAmount)}</strong></span>
+            <span>已收 <strong>${money(item.receivedAmount)}</strong></span>
+            <span>未收 <strong>${money(item.unpaidAmount)}</strong></span>
+          </div>
           ${item.note ? `<p class="small">${esc(item.note)}</p>` : ""}
-          <div class="split">
+          <div class="revenue-actions">
             <button class="ghost" type="button" data-edit-revenue-button="${item.id}">${editing ? "收起編輯" : "編輯"}</button>
             <button class="ghost" type="button" data-delete-revenue="${item.id}">刪除</button>
           </div>
-          ${editing ? renderHistoricalRevenueEditor(item) : ""}
+          ${editing ? `<div class="revenue-editor">${renderHistoricalRevenueEditor(item)}</div>` : ""}
         </div>
       `;
     }
@@ -2463,24 +2506,26 @@
             </div>
           `).join("")}
         </div>
-        <div class="section-title"><h3>新增歷史營收</h3></div>
-        <form id="historicalRevenueForm" class="panel">
-          <div class="grid metrics">
-            <div class="field"><label for="historyClientName">客戶名稱</label><input id="historyClientName" required></div>
-            <div class="field"><label for="historyPhone">電話</label><input id="historyPhone" inputmode="tel"></div>
-          </div>
-          <div class="field"><label for="historyProjectName">案件名稱</label><input id="historyProjectName" required></div>
-          <div class="grid metrics">
-            <div class="field"><label for="historyProjectDate">日期</label><input id="historyProjectDate" type="date" required value="${localDateString()}"></div>
-            <div class="field"><label for="historyStatus">狀態</label><select id="historyStatus"><option value="completed">已結案</option><option value="ongoing">製作中</option></select></div>
-          </div>
-          <div class="grid metrics">
-            <div class="field"><label for="historyTotalAmount">總金額</label><input id="historyTotalAmount" type="number" min="0" inputmode="numeric" value="0"></div>
-            <div class="field"><label for="historyReceivedAmount">已收款</label><input id="historyReceivedAmount" type="number" min="0" inputmode="numeric" value="0"></div>
-          </div>
-          <div class="field"><label for="historyNote">備註</label><textarea id="historyNote" placeholder="付款狀態、合約資訊、補充說明"></textarea></div>
-          <button class="primary" type="submit">新增營收案件</button>
-        </form>
+        <details class="foldout">
+          <summary class="split"><strong>新增歷史營收案件</strong></summary>
+          <form id="historicalRevenueForm" class="foldout-body">
+            <div class="grid metrics">
+              <div class="field"><label for="historyClientName">客戶名稱</label><input id="historyClientName" required></div>
+              <div class="field"><label for="historyPhone">電話</label><input id="historyPhone" inputmode="tel"></div>
+            </div>
+            <div class="field"><label for="historyProjectName">案件名稱</label><input id="historyProjectName" required></div>
+            <div class="grid metrics">
+              <div class="field"><label for="historyProjectDate">日期</label><input id="historyProjectDate" type="date" required value="${localDateString()}"></div>
+              <div class="field"><label for="historyStatus">狀態</label><select id="historyStatus"><option value="completed">已結案</option><option value="ongoing">製作中</option></select></div>
+            </div>
+            <div class="grid metrics">
+              <div class="field"><label for="historyTotalAmount">總金額</label><input id="historyTotalAmount" type="number" min="0" inputmode="numeric" value="0"></div>
+              <div class="field"><label for="historyReceivedAmount">已收款</label><input id="historyReceivedAmount" type="number" min="0" inputmode="numeric" value="0"></div>
+            </div>
+            <div class="field"><label for="historyNote">備註</label><textarea id="historyNote" placeholder="付款狀態、合約資訊、補充說明"></textarea></div>
+            <button class="primary" type="submit">新增營收案件</button>
+          </form>
+        </details>
       `;
     }
 
