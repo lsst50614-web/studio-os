@@ -2048,6 +2048,7 @@
               <div class="field"><label>新臨時密碼</label><input type="text" name="temporaryPassword" autocomplete="off" autocapitalize="off" spellcheck="false" minlength="6" required placeholder="至少 6 碼"></div>
               <button class="ghost" type="submit">重設密碼</button>
             </form>
+            <button class="ghost" type="button" data-delete-user="${user.id}" data-delete-user-name="${esc(user.label)}">刪除員工帳號</button>
           `}
         </div>
       `).join("");
@@ -2094,6 +2095,15 @@
       });
       alert("員工密碼已重設。");
       form.reset();
+    }
+
+    async function deleteEmployeeUser(id) {
+      await api(`/api/users/${id}`, {
+        method: "DELETE",
+        body: JSON.stringify(authPayload())
+      });
+      state.users = state.users.filter(user => String(user.id) !== String(id));
+      renderApp();
     }
 
     async function updateEmployeeBaseSalary(event) {
@@ -3174,6 +3184,11 @@
       const deletePaymentBtn = event.target.closest("[data-delete-payment]");
       if (deletePaymentBtn && confirm("這會刪除此筆收款排程，確定刪除？")) {
         deletePaymentSchedule(deletePaymentBtn.dataset.deletePayment).catch(error => alert(error.message));
+      }
+
+      const deleteUserBtn = event.target.closest("[data-delete-user]");
+      if (deleteUserBtn && confirm(`這會刪除員工「${deleteUserBtn.dataset.deleteUserName || ""}」的登入帳號，舊案件紀錄仍會保留。確定刪除？`)) {
+        deleteEmployeeUser(deleteUserBtn.dataset.deleteUser).catch(error => alert(error.message));
       }
 
       const installmentBtn = event.target.closest("[data-create-installments]");

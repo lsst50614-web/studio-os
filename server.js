@@ -784,6 +784,36 @@ app.patch("/api/users/:id/password", async (req, res, next) => {
   }
 });
 
+app.delete("/api/users/:id", async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const requesterId = Number(body.requesterId);
+    const targetId = Number(req.params.id);
+    if (!Number.isInteger(targetId) || targetId <= 0 || !Number.isInteger(requesterId) || requesterId <= 0) {
+      res.status(400).json({ error: "缺少使用者資訊" });
+      return;
+    }
+
+    if (!(await requireBoss(requesterId, requestToken(req), res, "只有老闆可以刪除員工帳號"))) return;
+    if (requesterId === targetId) {
+      res.status(400).json({ error: "不能刪除目前登入的老闆帳號" });
+      return;
+    }
+
+    const { rows } = await pool.query(
+      "DELETE FROM studio_users WHERE id = $1 AND is_boss = false RETURNING id",
+      [targetId]
+    );
+    if (!rows[0]) {
+      res.status(404).json({ error: "找不到可刪除的員工帳號" });
+      return;
+    }
+    res.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/company-records", async (_req, res, next) => {
   try {
     if (!(await requireBoss(_req.query.requesterId, requestToken(_req), res, "只有老闆可以讀取行政紀錄"))) return;
