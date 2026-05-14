@@ -898,6 +898,8 @@
       studioExpenseModel: defaultStudioExpenseModel,
       revenueQuery: "",
       revenueStatus: "all",
+      revenueListOpen: false,
+      revenueVisibleCount: 8,
       editingRevenueId: null,
       loading: false,
       apiError: ""
@@ -2453,6 +2455,8 @@
         return;
       }
       const items = visibleHistoricalRevenues();
+      const listOpen = state.revenueListOpen || Boolean(state.revenueQuery);
+      const visibleItems = items.slice(0, state.revenueVisibleCount);
       const allStats = historicalRevenueStats();
       const filteredStats = historicalRevenueStats(items);
       const statusFilters = [
@@ -2484,10 +2488,17 @@
           <div class="metric"><span>篩選已收</span><b>${money(filteredStats.received)}</b></div>
           <div class="metric"><span>篩選未收</span><b>${money(filteredStats.unpaid)}</b></div>
         </div>
-        <div class="section-title"><h3>${state.revenueQuery ? "搜尋結果" : "案件列表"}</h3><strong>${items.length} 件</strong></div>
-        <div class="grid">
-          ${items.length ? items.map(renderHistoricalRevenueCard).join("") : emptyPanel("目前沒有符合條件的歷史營收。")}
+        <div class="section-title">
+          <h3>${state.revenueQuery ? "搜尋結果" : "案件列表"}</h3>
+          <button class="ghost compact-action" type="button" data-revenue-toggle-list>${listOpen ? "隱藏列表" : `查看 ${items.length} 件`}</button>
         </div>
+        ${listOpen ? `
+          <div class="grid">
+            ${visibleItems.length ? visibleItems.map(renderHistoricalRevenueCard).join("") : emptyPanel("目前沒有符合條件的歷史營收。")}
+            ${items.length > state.revenueVisibleCount ? `<button class="ghost" type="button" data-revenue-more>顯示更多 ${Math.min(8, items.length - state.revenueVisibleCount)} 筆</button>` : ""}
+            ${items.length > 8 && state.revenueVisibleCount > 8 ? `<button class="ghost" type="button" data-revenue-collapse>收合列表，只看前 8 筆</button>` : ""}
+          </div>
+        ` : `<button class="ghost" type="button" data-revenue-toggle-list>展開案件列表</button>`}
         <div class="section-title"><h3>歷年營收統計</h3></div>
         <div class="grid">
           ${yearlyRevenueRows().map(row => `
@@ -3244,6 +3255,26 @@
       const revenueStatusBtn = event.target.closest("[data-revenue-status]");
       if (revenueStatusBtn) {
         state.revenueStatus = revenueStatusBtn.dataset.revenueStatus;
+        state.revenueVisibleCount = 8;
+        renderHistoricalRevenue();
+      }
+
+      const revenueToggleListBtn = event.target.closest("[data-revenue-toggle-list]");
+      if (revenueToggleListBtn) {
+        state.revenueListOpen = !state.revenueListOpen;
+        state.revenueVisibleCount = 8;
+        renderHistoricalRevenue();
+      }
+
+      const revenueMoreBtn = event.target.closest("[data-revenue-more]");
+      if (revenueMoreBtn) {
+        state.revenueVisibleCount += 8;
+        renderHistoricalRevenue();
+      }
+
+      const revenueCollapseBtn = event.target.closest("[data-revenue-collapse]");
+      if (revenueCollapseBtn) {
+        state.revenueVisibleCount = 8;
         renderHistoricalRevenue();
       }
 
@@ -3268,6 +3299,7 @@
 
     function applyRevenueSearch(value) {
       state.revenueQuery = value;
+      state.revenueVisibleCount = 8;
       renderHistoricalRevenue();
       requestAnimationFrame(() => {
         const input = document.querySelector("#revenueSearch");
