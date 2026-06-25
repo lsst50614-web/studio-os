@@ -347,6 +347,9 @@
     .status-暫緩 { background: var(--red); }
     .status-未支出 { background: var(--yellow); }
     .status-已支出 { background: var(--green); }
+    .status-未付款 { background: var(--yellow); }
+    .status-已付款 { background: var(--green); }
+    .status-待確認 { background: var(--magenta); }
     .status-不適用 { background: var(--surface-3); color: var(--soft); }
     .status-low { background: var(--surface-3); color: var(--soft); }
     .status-normal { background: var(--cyan); }
@@ -916,6 +919,8 @@
       expenses: [],
       payments: [],
       tasks: [],
+      monthlyFixedExpenses: [],
+      fixedExpenseMonth: localMonthString(),
       historicalRevenues: [],
       users: [],
       studioExpenseModel: defaultStudioExpenseModel,
@@ -1254,13 +1259,14 @@
         return;
       }
       try {
-        const [cases, records, expenses, payments, tasks, studioExpenseModel, historicalRevenues] = await Promise.all([
+        const [cases, records, expenses, payments, tasks, studioExpenseModel, monthlyFixedExpenses, historicalRevenues] = await Promise.all([
           api(`/api/cases?${authQuery()}`),
           state.user.isBoss ? api(`/api/company-records?${authQuery()}`) : Promise.resolve([]),
           api(`/api/expense-claims?${authQuery()}`),
           state.user.isBoss ? api(`/api/payment-schedules?${authQuery()}`) : Promise.resolve([]),
           state.user.isBoss ? api(`/api/tasks?${authQuery()}`) : Promise.resolve([]),
           state.user.isBoss ? api(`/api/studio-expense-model?${authQuery()}`) : Promise.resolve(defaultStudioExpenseModel),
+          state.user.isBoss ? api(`/api/monthly-fixed-expenses?${authQuery()}&month=${encodeURIComponent(state.fixedExpenseMonth)}`) : Promise.resolve([]),
           state.user.isBoss ? api(`/api/historical-revenues?${authQuery()}`) : Promise.resolve([])
         ]);
         state.cases = cases;
@@ -1269,6 +1275,7 @@
         state.payments = payments;
         state.tasks = tasks;
         state.studioExpenseModel = studioExpenseModel;
+        state.monthlyFixedExpenses = monthlyFixedExpenses;
         state.historicalRevenues = historicalRevenues;
         if (state.user.isBoss) state.users = await api(`/api/users?${authQuery()}`);
       } catch (error) {
@@ -1278,6 +1285,7 @@
         state.expenses = [];
         state.payments = [];
         state.tasks = [];
+        state.monthlyFixedExpenses = [];
         state.historicalRevenues = [];
         state.users = [];
         state.studioExpenseModel = defaultStudioExpenseModel;
@@ -2533,6 +2541,28 @@
       renderApp();
     }
 
+    async function loadMonthlyFixedExpenses(month = state.fixedExpenseMonth) {
+      state.fixedExpenseMonth = month || localMonthString();
+      state.monthlyFixedExpenses = await api(`/api/monthly-fixed-expenses?${authQuery()}&month=${encodeURIComponent(state.fixedExpenseMonth)}`);
+      renderApp();
+    }
+
+    async function updateMonthlyFixedExpense(event) {
+      event.preventDefault();
+      const form = event.target;
+      const item = await api(`/api/monthly-fixed-expenses/${form.dataset.fixedExpenseFor}`, {
+        method: "PATCH",
+        body: JSON.stringify(authPayload({
+          amount: Number(form.querySelector("[name='amount']").value || 0),
+          status: form.querySelector("[name='status']").value,
+          paidOn: form.querySelector("[name='paidOn']").value,
+          notes: form.querySelector("[name='notes']").value.trim()
+        }))
+      });
+      state.monthlyFixedExpenses = state.monthlyFixedExpenses.map(entry => String(entry.id) === String(item.id) ? item : entry);
+      renderApp();
+    }
+
     async function createHistoricalRevenue(event) {
       event.preventDefault();
       const revenue = await api("/api/historical-revenues", {
@@ -2785,6 +2815,7 @@
       const salary = employeeList().reduce((sum, employee) => sum + payrollFor(employee.name).total, 0);
       const pettyCash = monthlyPettyCash();
       const pendingCash = pendingPettyCash();
+      const fixedExpenseStats = monthlyFixedExpenseSummary();
       const podcastDueItems = state.cases.filter(item => isPodcastDelivered(item) && !isPodcastSettled(item));
       const podcastDue = podcastDueItems.reduce((sum, item) => sum + caseSplitTotal(item), 0);
       els.viewRoot.innerHTML = `
@@ -2797,6 +2828,8 @@
           <div class="metric"><span>現金收入</span><b>${money(paymentStats.cash)}</b></div>
           <div class="metric"><span>零用金支出</span><b>${money(pettyCash)}</b></div>
           <div class="metric"><span>未支出零用金</span><b>${money(pendingCash)}</b></div>
+          <div class="metric"><span>本月固定支出</span><b>${money(fixedExpenseStats.total)}</b></div>
+          <div class="metric"><span>固定支出未付款</span><b>${money(fixedExpenseStats.unpaid)}</b></div>
           <div class="metric"><span>Podcast 已交付應付</span><b>${money(podcastDue)}</b></div>
         </div>
         <div class="section-title"><h3>Podcast 已交付應付</h3><strong>${money(podcastDue)}</strong></div>
@@ -2864,6 +2897,41 @@
       };
     }
 
+    function monthlyFixedExpenseSummary(items = state.monthlyFixedExpenses) {
+      return {
+        total: items.reduce((sum, item) => sum + Number(item.amount || 0), 0),
+        paid: items.filter(item => item.status === "已付款").reduce((sum, item) => sum + Number(item.amount || 0), 0),
+        unpaid: items.filter(item => item.status !== "已付款").reduce((sum, item) => sum + Number(item.amount || 0), 0)
+      };
+    }
+
+    function renderMonthlyFixedExpenseRow(item) {
+      return `
+        <form class="finance-row" data-fixed-expense-for="${item.id}">
+          <div class="split">
+            <h3>${esc(item.name)}</h3>
+            <span class="badge status-${esc(item.status)}">${esc(item.status)}</span>
+          </div>
+          <div class="grid metrics">
+            <div class="field"><label>金額</label><input name="amount" type="number" min="0" inputmode="numeric" value="${Number(item.amount || 0)}"></div>
+            <div class="field">
+              <label>付款狀態</label>
+              <select name="status">
+                <option ${item.status === "未付款" ? "selected" : ""}>未付款</option>
+                <option ${item.status === "已付款" ? "selected" : ""}>已付款</option>
+                <option ${item.status === "待確認" ? "selected" : ""}>待確認</option>
+              </select>
+            </div>
+          </div>
+          <div class="grid metrics">
+            <div class="field"><label>付款日期</label><input name="paidOn" type="date" value="${esc(item.paidOn || "")}"></div>
+            <div class="field"><label>備註</label><input name="notes" value="${esc(item.notes || "")}" placeholder="帳單期別、轉帳備註"></div>
+          </div>
+          <button class="ghost" type="submit">更新固定支出</button>
+        </form>
+      `;
+    }
+
     function renderStudioExpenseRow(row, index, group) {
       return `
         <div class="split-row-form" data-${group}-row>
@@ -2887,10 +2955,22 @@
       }
       const model = state.studioExpenseModel || defaultStudioExpenseModel;
       const summary = studioExpenseSummary(model);
+      const monthlyFixedSummary = monthlyFixedExpenseSummary();
       els.viewRoot.innerHTML = `
         <div class="panel">
           <h3>估算模型說明</h3>
-          <p class="muted">這裡是工作室從開店至今的營運成本與建置成本估算，不是正式會計報表，也不會影響目前 APP 的案件、收款、零用金或現金流帳。零用金是資金來源，不列入這裡的成本。</p>
+          <p class="muted">每月固定支出會依照下面的估算模型自動產生，讓你每個月只需要確認付款狀態或修正實際金額。零用金是資金來源，不列入這裡的成本。</p>
+        </div>
+        <div class="section-title"><h3>本月固定支出</h3><strong>${money(monthlyFixedSummary.total)}</strong></div>
+        <div class="panel">
+          <div class="field"><label for="fixedExpenseMonth">月份</label><input id="fixedExpenseMonth" type="month" value="${esc(state.fixedExpenseMonth)}"></div>
+          <div class="grid metrics">
+            <div class="metric"><span>已付款</span><b>${money(monthlyFixedSummary.paid)}</b></div>
+            <div class="metric"><span>未付款 / 待確認</span><b>${money(monthlyFixedSummary.unpaid)}</b></div>
+          </div>
+        </div>
+        <div class="grid">
+          ${state.monthlyFixedExpenses.length ? state.monthlyFixedExpenses.map(renderMonthlyFixedExpenseRow).join("") : emptyPanel("這個月份還沒有固定支出資料。")}
         </div>
         <div class="section-title"><h3>月平均支出</h3><strong>${money(summary.monthlyTotal)}</strong></div>
         <div class="grid">
@@ -3707,6 +3787,9 @@
       if (event.target.matches("[data-status-for]")) {
         updateStatus(event.target.dataset.statusFor, event.target.value).catch(error => alert(error.message));
       }
+      if (event.target.id === "fixedExpenseMonth") {
+        loadMonthlyFixedExpenses(event.target.value).catch(error => alert(error.message));
+      }
     });
 
     document.addEventListener("wheel", event => {
@@ -3729,6 +3812,7 @@
       if (event.target.id === "caseForm") createCase(event).catch(error => alert(error.message));
       if (event.target.id === "companyRecordForm") createCompanyRecord(event).catch(error => alert(error.message));
       if (event.target.id === "studioExpenseForm") updateStudioExpenseModel(event).catch(error => alert(error.message));
+      if (event.target.matches("[data-fixed-expense-for]")) updateMonthlyFixedExpense(event).catch(error => alert(error.message));
       if (event.target.id === "historicalRevenueForm") createHistoricalRevenue(event).catch(error => alert(error.message));
       if (event.target.matches("[data-edit-revenue]")) updateHistoricalRevenue(event).catch(error => alert(error.message));
       if (event.target.id === "userForm") createUser(event).catch(error => alert(error.message));

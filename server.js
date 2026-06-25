@@ -46,6 +46,7 @@ const recordKinds = new Set(["公司狀態", "零用金"]);
 const paymentStatuses = new Set(["未支出", "已支出"]);
 const receivableStatuses = new Set(["未收", "已收"]);
 const paymentMethods = new Set(["現金", "轉帳", "Line Pay", "其他"]);
+const fixedExpenseStatuses = new Set(["未付款", "已付款", "待確認"]);
 const workTypes = new Set(Object.keys(caseTypes));
 const taskSources = new Set(["line", "ig", "google_map", "website", "manual"]);
 const taskServiceTypes = new Set(["cover", "podcast", "production", "recording", "mixing", "mastering", "scoring", "course", "review", "unknown"]);
@@ -170,6 +171,22 @@ async function initDb() {
       occurred_on DATE NOT NULL DEFAULT CURRENT_DATE,
       notes TEXT NOT NULL DEFAULT '',
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS studio_monthly_fixed_expenses (
+      id SERIAL PRIMARY KEY,
+      expense_month TEXT NOT NULL,
+      name TEXT NOT NULL,
+      amount INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT '未付款',
+      paid_on DATE,
+      notes TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT 'studio_expense_model',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (expense_month, name, source)
     );
   `);
 
@@ -382,6 +399,46 @@ function cleanKey(value) {
 function cleanNumber(value) {
   const number = Number(value || 0);
   return Number.isFinite(number) ? Math.max(0, number) : 0;
+}
+
+function cleanMonth(value) {
+  const text = cleanText(value);
+  return /^\d{4}-\d{2}$/.test(text) ? text : new Date().toISOString().slice(0, 7);
+}
+
+function cleanDate(value) {
+  const text = cleanText(value);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+}
+
+function toMonthlyFixedExpense(row) {
+  return {
+    id: row.id,
+    month: row.expense_month,
+    name: row.name,
+    amount: Number(row.amount || 0),
+    status: row.status || "未付款",
+    paidOn: row.paid_on instanceof Date ? row.paid_on.toISOString().slice(0, 10) : row.paid_on,
+    notes: row.notes || "",
+    source: row.source || "studio_expense_model",
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at
+  };
+}
+
+async function ensureMonthlyFixedExpenses(month) {
+  const { rows } = await pool.query("SELECT value FROM studio_settings WHERE key = 'studio_expense_model'");
+  const model = normalizeStudioExpenseModel(rows[0]?.value || defaultStudioExpenseModel);
+  for (const item of model.monthlyExpenses || []) {
+    const name = cleanText(item.name);
+    if (!name) continue;
+    await pool.query(
+      `INSERT INTO studio_monthly_fixed_expenses (expense_month, name, amount, status, notes, source)
+       VALUES ($1, $2, $3, '未付款', $4, 'studio_expense_model')
+       ON CONFLICT (expense_month, name, source) DO NOTHING`,
+      [month, name, Math.round(cleanNumber(item.amount)), `${cleanText(item.type)} · ${cleanText(item.cycle)}`]
+    );
+  }
 }
 
 function normalizedSplits(rawSplits, quote) {
@@ -1155,6 +1212,54 @@ app.put("/api/studio-expense-model", async (req, res, next) => {
       [JSON.stringify(model)]
     );
     res.json(normalizeStudioExpenseModel(rows[0].value));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/monthly-fixed-expenses", async (req, res, next) => {
+  try {
+    if (!(await requireBoss(req.query.requesterId, requestToken(req), res, "只有老闆可以讀取每月固定支出"))) return;
+    const month = cleanMonth(req.query.month);
+    await ensureMonthlyFixedExpenses(month);
+    const { rows } = await pool.query(
+      "SELECT * FROM studio_monthly_fixed_expenses WHERE expense_month = $1 ORDER BY id ASC",
+      [month]
+    );
+    res.json(rows.map(toMonthlyFixedExpense));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/monthly-fixed-expenses/:id", async (req, res, next) => {
+  try {
+    if (!(await requireBoss(req.body?.requesterId, requestToken(req), res, "只有老闆可以更新每月固定支出"))) return;
+    const body = req.body || {};
+    const status = fixedExpenseStatuses.has(body.status) ? body.status : "未付款";
+    const paidOn = status === "已付款" ? (cleanDate(body.paidOn) || new Date().toISOString().slice(0, 10)) : null;
+    const { rows } = await pool.query(
+      `UPDATE studio_monthly_fixed_expenses
+       SET amount = $1,
+           status = $2,
+           paid_on = $3,
+           notes = $4,
+           updated_at = now()
+       WHERE id = $5
+       RETURNING *`,
+      [
+        Math.round(cleanNumber(body.amount)),
+        status,
+        paidOn,
+        cleanText(body.notes),
+        req.params.id
+      ]
+    );
+    if (!rows[0]) {
+      res.status(404).json({ error: "找不到固定支出" });
+      return;
+    }
+    res.json(toMonthlyFixedExpense(rows[0]));
   } catch (error) {
     next(error);
   }
