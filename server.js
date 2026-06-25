@@ -47,6 +47,12 @@ const paymentStatuses = new Set(["未支出", "已支出"]);
 const receivableStatuses = new Set(["未收", "已收"]);
 const paymentMethods = new Set(["現金", "轉帳", "Line Pay", "其他"]);
 const workTypes = new Set(Object.keys(caseTypes));
+const taskSources = new Set(["line", "ig", "google_map", "website", "manual"]);
+const taskServiceTypes = new Set(["cover", "podcast", "production", "recording", "mixing", "mastering", "scoring", "course", "review", "unknown"]);
+const taskTypes = new Set(["quote", "schedule", "follow_up", "license", "urgent", "review", "material_check", "delivery_failed", "google_review"]);
+const taskStatuses = new Set(["open", "in_progress", "waiting_customer", "snoozed", "converted", "done", "lost"]);
+const taskPriorities = new Set(["low", "normal", "high", "urgent"]);
+const taskNotificationStatuses = new Set(["pending", "notified", "acknowledged", "failed", "disabled"]);
 
 const defaultStudioExpenseModel = {
   startMonth: "2019-02",
@@ -271,6 +277,54 @@ async function initDb() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS studio_tasks (
+      id SERIAL PRIMARY KEY,
+      source TEXT NOT NULL,
+      source_ref TEXT NOT NULL DEFAULT '',
+      customer_name TEXT NOT NULL DEFAULT '',
+      customer_handle TEXT NOT NULL DEFAULT '',
+      service_type TEXT NOT NULL DEFAULT 'unknown',
+      task_type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL DEFAULT '',
+      suggested_reply TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'open',
+      priority TEXT NOT NULL DEFAULT 'normal',
+      assigned_to TEXT NOT NULL DEFAULT 'boss',
+      notify_roles JSONB NOT NULL DEFAULT '["boss"]'::jsonb,
+      notification_status TEXT NOT NULL DEFAULT 'pending',
+      last_notified_at TIMESTAMPTZ,
+      due_at TIMESTAMPTZ,
+      follow_up_at TIMESTAMPTZ,
+      escalate_at TIMESTAMPTZ,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      linked_case_id TEXT REFERENCES studio_cases(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
+  await pool.query(`
+    ALTER TABLE studio_tasks
+      ADD COLUMN IF NOT EXISTS assigned_to TEXT NOT NULL DEFAULT 'boss',
+      ADD COLUMN IF NOT EXISTS notify_roles JSONB NOT NULL DEFAULT '["boss"]'::jsonb,
+      ADD COLUMN IF NOT EXISTS notification_status TEXT NOT NULL DEFAULT 'pending',
+      ADD COLUMN IF NOT EXISTS last_notified_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS due_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS follow_up_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS escalate_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS linked_case_id TEXT REFERENCES studio_cases(id) ON DELETE SET NULL;
+  `);
+
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS studio_tasks_source_ref_idx ON studio_tasks (source_ref) WHERE source_ref <> '';");
+  await pool.query("CREATE INDEX IF NOT EXISTS studio_tasks_status_idx ON studio_tasks (status);");
+  await pool.query("CREATE INDEX IF NOT EXISTS studio_tasks_assigned_to_idx ON studio_tasks (assigned_to);");
+  await pool.query("CREATE INDEX IF NOT EXISTS studio_tasks_priority_idx ON studio_tasks (priority);");
+  await pool.query("CREATE INDEX IF NOT EXISTS studio_tasks_follow_up_at_idx ON studio_tasks (follow_up_at);");
+  await pool.query("CREATE INDEX IF NOT EXISTS studio_tasks_created_at_idx ON studio_tasks (created_at DESC);");
 
   await pool.query(`
     ALTER TABLE studio_users
@@ -522,6 +576,81 @@ function toPaymentSchedule(row) {
   };
 }
 
+function toTask(row) {
+  return {
+    id: row.id,
+    source: row.source,
+    sourceRef: row.source_ref || "",
+    customerName: row.customer_name || "",
+    customerHandle: row.customer_handle || "",
+    serviceType: row.service_type || "unknown",
+    taskType: row.task_type,
+    title: row.title,
+    summary: row.summary || "",
+    suggestedReply: row.suggested_reply || "",
+    status: row.status || "open",
+    priority: row.priority || "normal",
+    assignedTo: row.assigned_to || "boss",
+    notifyRoles: Array.isArray(row.notify_roles) ? row.notify_roles : ["boss"],
+    notificationStatus: row.notification_status || "pending",
+    lastNotifiedAt: row.last_notified_at instanceof Date ? row.last_notified_at.toISOString() : row.last_notified_at,
+    dueAt: row.due_at instanceof Date ? row.due_at.toISOString() : row.due_at,
+    followUpAt: row.follow_up_at instanceof Date ? row.follow_up_at.toISOString() : row.follow_up_at,
+    escalateAt: row.escalate_at instanceof Date ? row.escalate_at.toISOString() : row.escalate_at,
+    payload: row.payload && typeof row.payload === "object" ? row.payload : {},
+    linkedCaseId: row.linked_case_id || "",
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at
+  };
+}
+
+function cleanJsonObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function cleanJsonArray(value, fallback = []) {
+  return Array.isArray(value) ? value.map(cleanText).filter(Boolean) : fallback;
+}
+
+function cleanTimestamp(value) {
+  const text = cleanText(value);
+  if (!text) return null;
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function normalizeTaskInput(body = {}) {
+  const source = taskSources.has(body.source) ? body.source : "manual";
+  const serviceType = taskServiceTypes.has(body.serviceType) ? body.serviceType : "unknown";
+  const taskType = taskTypes.has(body.taskType) ? body.taskType : "review";
+  const status = taskStatuses.has(body.status) ? body.status : "open";
+  const priority = taskPriorities.has(body.priority) ? body.priority : (taskType === "urgent" || taskType === "delivery_failed" ? "high" : "normal");
+  const notificationStatus = taskNotificationStatuses.has(body.notificationStatus) ? body.notificationStatus : "pending";
+  const notifyRoles = cleanJsonArray(body.notifyRoles, ["boss"]);
+  return {
+    source,
+    sourceRef: cleanText(body.sourceRef),
+    customerName: cleanText(body.customerName),
+    customerHandle: cleanText(body.customerHandle),
+    serviceType,
+    taskType,
+    title: cleanText(body.title) || "待辦事項",
+    summary: cleanText(body.summary),
+    suggestedReply: cleanText(body.suggestedReply),
+    status,
+    priority,
+    assignedTo: cleanText(body.assignedTo) || "boss",
+    notifyRoles: notifyRoles.length ? notifyRoles : ["boss"],
+    notificationStatus,
+    lastNotifiedAt: cleanTimestamp(body.lastNotifiedAt),
+    dueAt: cleanTimestamp(body.dueAt),
+    followUpAt: cleanTimestamp(body.followUpAt),
+    escalateAt: cleanTimestamp(body.escalateAt),
+    payload: cleanJsonObject(body.payload),
+    linkedCaseId: cleanText(body.linkedCaseId)
+  };
+}
+
 async function getRequester(userId) {
   const id = Number(userId);
   if (!Number.isInteger(id) || id <= 0) return null;
@@ -546,6 +675,18 @@ async function requireBoss(userId, token, res, message = "只有老闆可以操�
     return null;
   }
   return user;
+}
+
+function hasInternalTaskToken(req) {
+  const expected = cleanText(process.env.STUDIO_TASK_INGEST_TOKEN);
+  const actual = cleanText(req.get("x-internal-token"));
+  return Boolean(expected && actual && actual === expected);
+}
+
+async function requireTaskWriter(req, res) {
+  if (hasInternalTaskToken(req)) return { internal: true };
+  const user = await requireBoss(req.body?.requesterId, requestToken(req), res, "沒有權限建立待辦");
+  return user ? { internal: false, user } : null;
 }
 
 function userAliases(user) {
@@ -604,6 +745,174 @@ app.get("/api/cases", async (_req, res, next) => {
     }
 
     res.json(rows.map(toCase).filter(item => canAccessCase(user, item)));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/tasks", async (req, res, next) => {
+  try {
+    const user = await requireBoss(req.query.requesterId, requestToken(req), res, "只有老闆可以讀取待辦");
+    if (!user) return;
+    const conditions = [];
+    const values = [];
+    const addFilter = (field, value) => {
+      const text = cleanText(value);
+      if (!text || text === "all") return;
+      values.push(text);
+      conditions.push(`${field} = $${values.length}`);
+    };
+    addFilter("status", req.query.status);
+    addFilter("source", req.query.source);
+    addFilter("priority", req.query.priority);
+    addFilter("assigned_to", req.query.assignedTo);
+    addFilter("task_type", req.query.taskType);
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const { rows } = await pool.query(
+      `SELECT * FROM studio_tasks ${where} ORDER BY
+        CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
+        COALESCE(follow_up_at, due_at, created_at) ASC,
+        created_at DESC
+       LIMIT 200`,
+      values
+    );
+    res.json(rows.map(toTask));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/tasks", async (req, res, next) => {
+  try {
+    const writer = await requireTaskWriter(req, res);
+    if (!writer) return;
+    const task = normalizeTaskInput(req.body || {});
+    if (!task.title) {
+      res.status(400).json({ error: "請提供待辦標題" });
+      return;
+    }
+    const values = [
+      task.source,
+      task.sourceRef,
+      task.customerName,
+      task.customerHandle,
+      task.serviceType,
+      task.taskType,
+      task.title,
+      task.summary,
+      task.suggestedReply,
+      task.status,
+      task.priority,
+      task.assignedTo,
+      JSON.stringify(task.notifyRoles),
+      task.notificationStatus,
+      task.lastNotifiedAt,
+      task.dueAt,
+      task.followUpAt,
+      task.escalateAt,
+      JSON.stringify(task.payload),
+      task.linkedCaseId || null
+    ];
+    const insertSql = `
+      INSERT INTO studio_tasks
+        (source, source_ref, customer_name, customer_handle, service_type, task_type, title, summary, suggested_reply, status, priority,
+         assigned_to, notify_roles, notification_status, last_notified_at, due_at, follow_up_at, escalate_at, payload, linked_case_id)
+      VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16, $17, $18, $19::jsonb, $20)
+    `;
+    const { rows } = task.sourceRef
+      ? await pool.query(
+          `${insertSql}
+           ON CONFLICT (source_ref) WHERE source_ref <> ''
+           DO UPDATE SET
+             customer_name = EXCLUDED.customer_name,
+             customer_handle = EXCLUDED.customer_handle,
+             service_type = EXCLUDED.service_type,
+             task_type = EXCLUDED.task_type,
+             title = EXCLUDED.title,
+             summary = EXCLUDED.summary,
+             suggested_reply = EXCLUDED.suggested_reply,
+             priority = EXCLUDED.priority,
+             assigned_to = EXCLUDED.assigned_to,
+             notify_roles = EXCLUDED.notify_roles,
+             notification_status = EXCLUDED.notification_status,
+             due_at = EXCLUDED.due_at,
+             follow_up_at = EXCLUDED.follow_up_at,
+             escalate_at = EXCLUDED.escalate_at,
+             payload = EXCLUDED.payload,
+             linked_case_id = COALESCE(EXCLUDED.linked_case_id, studio_tasks.linked_case_id),
+             updated_at = now()
+           RETURNING *`,
+          values
+        )
+      : await pool.query(`${insertSql} RETURNING *`, values);
+    res.status(201).json(toTask(rows[0]));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/tasks/:id", async (req, res, next) => {
+  try {
+    const user = await requireBoss(req.body?.requesterId, requestToken(req), res, "只有老闆可以更新待辦");
+    if (!user) return;
+    const found = await pool.query("SELECT * FROM studio_tasks WHERE id = $1", [req.params.id]);
+    if (!found.rows[0]) {
+      res.status(404).json({ error: "找不到待辦" });
+      return;
+    }
+    const current = toTask(found.rows[0]);
+    const task = normalizeTaskInput({ ...current, ...(req.body || {}) });
+    const { rows } = await pool.query(
+      `UPDATE studio_tasks
+       SET source = $1,
+           source_ref = $2,
+           customer_name = $3,
+           customer_handle = $4,
+           service_type = $5,
+           task_type = $6,
+           title = $7,
+           summary = $8,
+           suggested_reply = $9,
+           status = $10,
+           priority = $11,
+           assigned_to = $12,
+           notify_roles = $13::jsonb,
+           notification_status = $14,
+           last_notified_at = $15,
+           due_at = $16,
+           follow_up_at = $17,
+           escalate_at = $18,
+           payload = $19::jsonb,
+           linked_case_id = $20,
+           updated_at = now()
+       WHERE id = $21
+       RETURNING *`,
+      [
+        task.source,
+        task.sourceRef,
+        task.customerName,
+        task.customerHandle,
+        task.serviceType,
+        task.taskType,
+        task.title,
+        task.summary,
+        task.suggestedReply,
+        task.status,
+        task.priority,
+        task.assignedTo,
+        JSON.stringify(task.notifyRoles),
+        task.notificationStatus,
+        task.lastNotifiedAt,
+        task.dueAt,
+        task.followUpAt,
+        task.escalateAt,
+        JSON.stringify(task.payload),
+        task.linkedCaseId || null,
+        req.params.id
+      ]
+    );
+    res.json(toTask(rows[0]));
   } catch (error) {
     next(error);
   }

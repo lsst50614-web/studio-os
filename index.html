@@ -348,6 +348,10 @@
     .status-未支出 { background: var(--yellow); }
     .status-已支出 { background: var(--green); }
     .status-不適用 { background: var(--surface-3); color: var(--soft); }
+    .status-low { background: var(--surface-3); color: var(--soft); }
+    .status-normal { background: var(--cyan); }
+    .status-high { background: var(--yellow); }
+    .status-urgent { background: var(--red); }
 
     .progress-track {
       width: 100%;
@@ -534,6 +538,23 @@
       margin-top: 12px;
       display: grid;
       gap: 8px;
+    }
+
+    .task-note {
+      border: 1px solid rgba(85, 200, 232, .26);
+      background: rgba(85, 200, 232, .07);
+      border-radius: 8px;
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .task-reply {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      color: var(--soft);
+      line-height: 1.55;
     }
 
     .foldout {
@@ -807,6 +828,7 @@
         </div>
         <p id="loginError" class="error"></p>
         <button class="primary" type="submit">登入</button>
+        <button id="previewLoginBtn" class="ghost hidden" type="button">本機預覽老闆模式</button>
       </form>
     </section>
 
@@ -893,6 +915,7 @@
       records: [],
       expenses: [],
       payments: [],
+      tasks: [],
       historicalRevenues: [],
       users: [],
       studioExpenseModel: defaultStudioExpenseModel,
@@ -916,6 +939,7 @@
       username: document.querySelector("#username"),
       password: document.querySelector("#password"),
       loginError: document.querySelector("#loginError"),
+      previewLoginBtn: document.querySelector("#previewLoginBtn"),
       logoutBtn: document.querySelector("#logoutBtn"),
       pageTitle: document.querySelector("#pageTitle"),
       eyebrow: document.querySelector("#eyebrow"),
@@ -976,7 +1000,109 @@
       localStorage.removeItem(sessionKey);
     }
 
+    const previewUser = {
+      id: 0,
+      email: "preview@clmusic.local",
+      label: "老闆預覽",
+      employee: "老闆預覽",
+      role: "boss",
+      icon: "CL",
+      isBoss: true,
+      token: "preview",
+      preview: true
+    };
+
+    const previewTasks = [
+      {
+        id: 9001,
+        source: "line",
+        sourceRef: "preview-line-cover-001",
+        customerName: "小安",
+        customerHandle: "@line-demo",
+        serviceType: "cover",
+        taskType: "quote",
+        title: "翻唱方案詢問",
+        summary: "客人想錄半首翻唱，還不確定要用去人聲伴奏或重新編曲，需要先確認用途、歌曲、是否公開上架。",
+        suggestedReply: "哈囉～可以的。我先幫你確認一下需求：你是想做半首翻唱，主要用途是自己紀念、社群發佈，還是會上架平台呢？\n\n目前半首翻唱有兩種常見做法：\n1. 9,800：使用去人聲或既有伴奏錄唱，包含基本修音、混音、母帶和簡易影像。\n2. 16,000：半首重新編曲，聲音會更客製。\n\n兩個方案都含錄音室 2 小時，超過再以 1,200/hr 加收。你可以先把想唱的歌名傳給我，我幫你看比較適合哪一種。",
+        status: "open",
+        priority: "high",
+        assignedTo: "boss",
+        notifyRoles: ["boss"],
+        notificationStatus: "pending",
+        followUpAt: new Date().toISOString(),
+        payload: { line: { text: "你好，我想問翻唱一首歌大概多少？想錄半首就好。" } },
+        linkedCaseId: "",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      },
+      {
+        id: 9002,
+        source: "ig",
+        sourceRef: "preview-ig-podcast-001",
+        customerName: "品牌窗口",
+        customerHandle: "@podcast_demo",
+        serviceType: "podcast",
+        taskType: "follow_up",
+        title: "Podcast 多集需求追蹤",
+        summary: "客人詢問 4 集 Podcast 錄音剪輯，可能是小型商業案，需要確認每集長度、人數、是否需要上架。",
+        suggestedReply: "可以～Podcast 我先幫你抓方向。想確認一下：總共是 4 集，每集大約幾分鐘？現場會有幾位主持或來賓？\n\n如果是單集 60 分鐘內，基本是錄音 1,000 / 集、剪輯 1,000 / 集，錄音加剪輯 1,500 / 集。多集或企業需求我會再幫你整理正式報價。",
+        status: "waiting_customer",
+        priority: "normal",
+        assignedTo: "boss",
+        notifyRoles: ["boss"],
+        notificationStatus: "notified",
+        followUpAt: new Date(Date.now() + 86400000).toISOString(),
+        payload: { ig: { text: "我們想做四集 podcast，請問怎麼算？" } },
+        linkedCaseId: "",
+        createdAt: new Date(Date.now() - 86400000).toISOString(),
+        updatedAt: new Date().toISOString()
+      },
+      {
+        id: 9003,
+        source: "google_map",
+        sourceRef: "preview-google-review-001",
+        customerName: "Google 評價",
+        customerHandle: "",
+        serviceType: "review",
+        taskType: "google_review",
+        title: "Google Map 新評價待回覆",
+        summary: "有新的 Google Map 評價需要回覆。評價管理不做洗評價，重點是自然邀請真實客戶留下回饋，並穩定回應。",
+        suggestedReply: "謝謝你願意留下回饋，也很開心這次在晨嵐的錄音體驗對你有幫助。之後有翻唱、錄音或 Podcast 需求，也歡迎再來找我們～",
+        status: "open",
+        priority: "normal",
+        assignedTo: "boss",
+        notifyRoles: ["boss"],
+        notificationStatus: "pending",
+        followUpAt: new Date().toISOString(),
+        payload: { googleMap: { text: "錄音過程很舒服，老師也很有耐心。" } },
+        linkedCaseId: "",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+    ];
+
+    function isLocalPreviewMode() {
+      return location.protocol === "file:" || state.user?.preview;
+    }
+
+    function applyPreviewData() {
+      state.cases = [];
+      state.records = [];
+      state.expenses = [];
+      state.payments = [];
+      state.tasks = previewTasks.map(task => ({ ...task }));
+      state.historicalRevenues = [];
+      state.users = [
+        previewUser,
+        { id: 1, email: "manager@clmusic.local", label: "店長", role: "staff", icon: "ST", isBoss: false, workTypes: ["錄音", "Podcast 錄音"], baseSalary: 0 }
+      ];
+      state.studioExpenseModel = defaultStudioExpenseModel;
+    }
+
     async function restoreSession() {
+      if (location.protocol === "file:") {
+        els.previewLoginBtn.classList.remove("hidden");
+      }
       const raw = localStorage.getItem(sessionKey);
       if (!raw) return;
       try {
@@ -1121,12 +1247,19 @@
       state.loading = true;
       state.apiError = "";
       renderApp();
+      if (state.user?.preview) {
+        applyPreviewData();
+        state.loading = false;
+        renderApp();
+        return;
+      }
       try {
-        const [cases, records, expenses, payments, studioExpenseModel, historicalRevenues] = await Promise.all([
+        const [cases, records, expenses, payments, tasks, studioExpenseModel, historicalRevenues] = await Promise.all([
           api(`/api/cases?${authQuery()}`),
           state.user.isBoss ? api(`/api/company-records?${authQuery()}`) : Promise.resolve([]),
           api(`/api/expense-claims?${authQuery()}`),
           state.user.isBoss ? api(`/api/payment-schedules?${authQuery()}`) : Promise.resolve([]),
+          state.user.isBoss ? api(`/api/tasks?${authQuery()}`) : Promise.resolve([]),
           state.user.isBoss ? api(`/api/studio-expense-model?${authQuery()}`) : Promise.resolve(defaultStudioExpenseModel),
           state.user.isBoss ? api(`/api/historical-revenues?${authQuery()}`) : Promise.resolve([])
         ]);
@@ -1134,6 +1267,7 @@
         state.records = records;
         state.expenses = expenses;
         state.payments = payments;
+        state.tasks = tasks;
         state.studioExpenseModel = studioExpenseModel;
         state.historicalRevenues = historicalRevenues;
         if (state.user.isBoss) state.users = await api(`/api/users?${authQuery()}`);
@@ -1143,6 +1277,7 @@
         state.records = [];
         state.expenses = [];
         state.payments = [];
+        state.tasks = [];
         state.historicalRevenues = [];
         state.users = [];
         state.studioExpenseModel = defaultStudioExpenseModel;
@@ -1202,6 +1337,17 @@
       els.loginError.textContent = "";
       els.username.value = "";
       els.password.value = "";
+      els.loginScreen.classList.add("hidden");
+      els.appScreen.classList.remove("hidden");
+      els.bottomNav.classList.remove("hidden");
+      await refreshCases();
+    }
+
+    async function loginPreview() {
+      state.user = previewUser;
+      state.page = "home";
+      saveSession();
+      els.loginError.textContent = "";
       els.loginScreen.classList.add("hidden");
       els.appScreen.classList.remove("hidden");
       els.bottomNav.classList.remove("hidden");
@@ -1411,10 +1557,94 @@
       `).join("");
     }
 
+    const taskTypeLabels = {
+      quote: "待報價",
+      schedule: "待排程",
+      follow_up: "待追蹤",
+      license: "授權 / 商用",
+      urgent: "急件",
+      review: "人工確認",
+      material_check: "素材確認",
+      delivery_failed: "送出失敗",
+      google_review: "Google 評價"
+    };
+
+    const serviceTypeLabels = {
+      cover: "翻唱",
+      podcast: "Podcast",
+      production: "製作",
+      recording: "錄音",
+      mixing: "混音",
+      mastering: "母帶",
+      scoring: "配樂",
+      course: "課程",
+      review: "評價",
+      unknown: "未分類"
+    };
+
+    const taskStatusLabels = {
+      open: "待處理",
+      in_progress: "處理中",
+      waiting_customer: "等客人",
+      snoozed: "已延後",
+      converted: "已轉案件",
+      done: "已處理",
+      lost: "流失"
+    };
+
+    function taskLabel(map, key) {
+      return map[key] || key || "未設定";
+    }
+
+    function taskDate(value) {
+      if (!value) return "未設定";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value);
+      return date.toLocaleString("zh-TW", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    }
+
+    function activeTasks() {
+      const activeStatuses = new Set(["open", "in_progress", "waiting_customer", "snoozed"]);
+      return state.tasks.filter(task => activeStatuses.has(task.status));
+    }
+
+    function taskMetrics() {
+      const active = activeTasks();
+      const today = localDateString();
+      return {
+        open: active.filter(task => task.status === "open").length,
+        high: active.filter(task => ["high", "urgent"].includes(task.priority)).length,
+        follow: active.filter(task => (task.followUpAt || "").slice(0, 10) <= today && task.followUpAt).length,
+        total: active.length
+      };
+    }
+
+    function renderTaskRows(tasks = activeTasks().slice(0, 6)) {
+      if (!tasks.length) return emptyPanel("目前沒有待處理事項。");
+      return tasks.map(task => `
+        <div class="record-row">
+          <div class="split">
+            <div>
+              <h3>${esc(task.title)}</h3>
+              <p class="small">${esc(taskLabel(serviceTypeLabels, task.serviceType))} · ${esc(taskLabel(taskTypeLabels, task.taskType))} · ${esc(task.source)}</p>
+            </div>
+            <span class="badge status-${esc(task.priority)}">${esc(task.priority === "urgent" ? "急件" : task.priority === "high" ? "高" : "一般")}</span>
+          </div>
+          <p class="muted">${esc(task.summary || "沒有摘要。")}</p>
+          <div class="split">
+            <span class="small">負責 ${esc(task.assignedTo || "boss")} · 狀態 ${esc(taskLabel(taskStatusLabels, task.status))}</span>
+            <span class="small">${esc(task.followUpAt ? `追蹤 ${taskDate(task.followUpAt)}` : `建立 ${taskDate(task.createdAt)}`)}</span>
+          </div>
+          <button class="ghost" type="button" data-task="${task.id}">查看待辦</button>
+        </div>
+      `).join("");
+    }
+
     function renderHome() {
       const items = visibleCases();
       const s = stats(items);
       if (state.user.isBoss) {
+        const taskSummary = taskMetrics();
         els.viewRoot.innerHTML = `
           <div class="grid metrics">
             <div class="metric"><span>本月總收入</span><b>${money(s.total)}</b></div>
@@ -1422,6 +1652,14 @@
             <div class="metric"><span>待驗收</span><b>${s.review}</b></div>
             <div class="metric"><span>已完成</span><b>${s.done}</b></div>
           </div>
+          <div class="section-title"><h3>今日待辦</h3></div>
+          <div class="grid metrics">
+            <div class="metric"><span>待處理</span><b>${taskSummary.open}</b></div>
+            <div class="metric"><span>高優先</span><b>${taskSummary.high}</b></div>
+            <div class="metric"><span>今日追蹤</span><b>${taskSummary.follow}</b></div>
+            <div class="metric"><span>全部進行中</span><b>${taskSummary.total}</b></div>
+          </div>
+          <div class="grid">${renderTaskRows(activeTasks().slice(0, 6))}</div>
           <div class="section-title"><h3>員工概覽</h3></div>
           <div class="grid">
             ${employeeList().map(employee => {
@@ -2976,6 +3214,117 @@
       els.caseModal.classList.remove("open");
     }
 
+    function taskCustomerLine(task) {
+      return [task.customerName, task.customerHandle].filter(Boolean).join(" / ") || "未留下名稱";
+    }
+
+    function taskPayloadText(task, key) {
+      const payload = task.payload || {};
+      const line = payload.line || payload.ig || payload.googleMap || {};
+      return payload[key] || line[key] || "";
+    }
+
+    function taskReplyText(task) {
+      return task.suggestedReply || taskPayloadText(task, "draftReply") || taskPayloadText(task, "suggestedReply") || "";
+    }
+
+    function taskNextIso(days = 1) {
+      const date = new Date();
+      date.setDate(date.getDate() + days);
+      date.setHours(10, 0, 0, 0);
+      return date.toISOString();
+    }
+
+    function openTask(id) {
+      const task = state.tasks.find(entry => String(entry.id) === String(id));
+      if (!task) return;
+      const originalText = taskPayloadText(task, "text") || taskPayloadText(task, "message") || taskPayloadText(task, "customerMessage");
+      const replyText = taskReplyText(task);
+      els.modalCode.textContent = `待辦 #${task.id} · ${task.source}`;
+      els.modalTitle.textContent = task.title;
+      els.modalBody.innerHTML = `
+        <div class="detail-grid">
+          <div class="detail-item"><span class="small">客戶</span><strong>${esc(taskCustomerLine(task))}</strong></div>
+          <div class="detail-item"><span class="small">服務</span><strong>${esc(taskLabel(serviceTypeLabels, task.serviceType))}</strong></div>
+          <div class="detail-item"><span class="small">事項</span><strong>${esc(taskLabel(taskTypeLabels, task.taskType))}</strong></div>
+          <div class="detail-item"><span class="small">狀態</span><strong>${esc(taskLabel(taskStatusLabels, task.status))}</strong></div>
+          <div class="detail-item"><span class="small">負責</span><strong>${esc(task.assignedTo || "boss")}</strong></div>
+          <div class="detail-item"><span class="small">追蹤</span><strong>${esc(task.followUpAt ? taskDate(task.followUpAt) : taskDate(task.createdAt))}</strong></div>
+        </div>
+        <div class="task-note">
+          <h3>處理摘要</h3>
+          <p class="muted">${esc(task.summary || "目前沒有摘要。")}</p>
+        </div>
+        ${originalText ? `
+          <div class="task-note">
+            <h3>客戶原訊息</h3>
+            <p class="task-reply">${esc(originalText)}</p>
+          </div>
+        ` : ""}
+        <div class="task-note">
+          <div class="split">
+            <h3>建議回覆</h3>
+            <button class="ghost compact-action" type="button" data-copy-task-reply="${esc(task.id)}">複製</button>
+          </div>
+          <p class="task-reply">${esc(replyText || "目前沒有建議回覆，請先人工判斷。")}</p>
+        </div>
+        <div class="task-note">
+          <h3>下一步</h3>
+          <p class="muted">第一版先由老闆或店長到 LINE / IG 官方帳號人工回覆。之後串接 API 後，這裡會升級成確認送出的審核畫面。</p>
+        </div>
+        <div class="form-actions">
+          <button class="ghost" type="button" data-task-status="in_progress" data-task-id="${esc(task.id)}">開始處理</button>
+          <button class="ghost" type="button" data-task-status="waiting_customer" data-task-id="${esc(task.id)}">等客人</button>
+        </div>
+        <div class="form-actions">
+          <button class="ghost" type="button" data-task-snooze="1" data-task-id="${esc(task.id)}">明天追</button>
+          <button class="ghost" type="button" data-task-snooze="3" data-task-id="${esc(task.id)}">三天後追</button>
+        </div>
+        <div class="form-actions">
+          <button class="ghost" type="button" data-task-status="lost" data-task-id="${esc(task.id)}">標記流失</button>
+          <button class="primary" type="button" data-task-status="done" data-task-id="${esc(task.id)}">已處理</button>
+        </div>
+      `;
+      els.caseModal.classList.add("open");
+    }
+
+    async function updateTask(id, patch, { reopen = true } = {}) {
+      if (state.user?.preview) {
+        const now = new Date().toISOString();
+        state.tasks = state.tasks.map(entry => String(entry.id) === String(id) ? { ...entry, ...patch, updatedAt: now } : entry);
+        const task = state.tasks.find(entry => String(entry.id) === String(id));
+        renderApp();
+        if (reopen && task && ["open", "in_progress", "waiting_customer", "snoozed"].includes(task.status)) {
+          openTask(task.id);
+        } else {
+          closeModal();
+        }
+        return;
+      }
+      const task = await api(`/api/tasks/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(authPayload(patch))
+      });
+      state.tasks = state.tasks.map(entry => String(entry.id) === String(id) ? task : entry);
+      renderApp();
+      if (reopen && ["open", "in_progress", "waiting_customer", "snoozed"].includes(task.status)) {
+        openTask(task.id);
+      } else {
+        closeModal();
+      }
+    }
+
+    async function copyTaskReply(id) {
+      const task = state.tasks.find(entry => String(entry.id) === String(id));
+      const text = task ? taskReplyText(task) : "";
+      if (!text) {
+        alert("這筆待辦目前沒有建議回覆。");
+        return;
+      }
+      await navigator.clipboard.writeText(text);
+      alert("已複製建議回覆，可以貼到 LINE / IG 官方後台。");
+    }
+
     async function updateChecklist(id, index, checked) {
       const item = await api(`/api/cases/${id}/checklist`, {
         method: "PATCH",
@@ -3204,6 +3553,25 @@
       const caseBtn = event.target.closest("[data-case]");
       if (caseBtn) openCase(caseBtn.dataset.case);
 
+      const taskBtn = event.target.closest("[data-task]");
+      if (taskBtn) openTask(taskBtn.dataset.task);
+
+      const taskStatusBtn = event.target.closest("[data-task-status]");
+      if (taskStatusBtn) {
+        const status = taskStatusBtn.dataset.taskStatus;
+        const followUpAt = status === "waiting_customer" ? taskNextIso(2) : null;
+        updateTask(taskStatusBtn.dataset.taskId, { status, followUpAt }).catch(error => alert(error.message));
+      }
+
+      const taskSnoozeBtn = event.target.closest("[data-task-snooze]");
+      if (taskSnoozeBtn) {
+        const days = Number(taskSnoozeBtn.dataset.taskSnooze || 1);
+        updateTask(taskSnoozeBtn.dataset.taskId, { status: "snoozed", followUpAt: taskNextIso(days) }).catch(error => alert(error.message));
+      }
+
+      const copyTaskBtn = event.target.closest("[data-copy-task-reply]");
+      if (copyTaskBtn) copyTaskReply(copyTaskBtn.dataset.copyTaskReply).catch(error => alert(error.message));
+
       const addSplitBtn = event.target.closest("[data-add-split-row]");
       if (addSplitBtn) addSplitRow();
 
@@ -3349,6 +3717,9 @@
     }, { passive: false });
 
     els.loginForm.addEventListener("submit", login);
+    els.previewLoginBtn.addEventListener("click", () => {
+      loginPreview().catch(error => alert(error.message));
+    });
     els.logoutBtn.addEventListener("click", logout);
     els.closeModal.addEventListener("click", closeModal);
     els.caseModal.addEventListener("click", event => {
