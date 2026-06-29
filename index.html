@@ -398,6 +398,7 @@
     }
 
     .nav-btn {
+      position: relative;
       border-radius: 8px;
       background: transparent;
       color: var(--muted);
@@ -408,6 +409,33 @@
       font-size: 11px;
       font-weight: 800;
       min-width: 0;
+    }
+
+    .nav-alert {
+      position: absolute;
+      top: 6px;
+      right: 18px;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      border-radius: 99px;
+      display: grid;
+      place-items: center;
+      background: var(--red);
+      color: #fff;
+      font-size: 10px;
+      line-height: 1;
+      box-shadow: 0 0 0 2px rgba(10, 13, 17, .92);
+    }
+
+    .task-alert {
+      border-color: rgba(255, 99, 99, .5);
+      box-shadow: inset 3px 0 0 var(--red);
+    }
+
+    .task-today {
+      border-color: rgba(255, 212, 121, .38);
+      box-shadow: inset 3px 0 0 var(--yellow);
     }
 
     .nav-btn svg {
@@ -1250,6 +1278,12 @@
       };
     }
 
+    function canManageTasks(user = state.user) {
+      if (!user) return false;
+      const role = cleanKey(user.role || "");
+      return Boolean(user.isBoss || role === "店長" || role === "manager" || role === "admin");
+    }
+
     async function refreshCases() {
       state.loading = true;
       state.apiError = "";
@@ -1266,7 +1300,7 @@
           state.user.isBoss ? api(`/api/company-records?${authQuery()}`) : Promise.resolve([]),
           api(`/api/expense-claims?${authQuery()}`),
           state.user.isBoss ? api(`/api/payment-schedules?${authQuery()}`) : Promise.resolve([]),
-          state.user.isBoss ? api(`/api/tasks?${authQuery()}`) : Promise.resolve([]),
+          canManageTasks() ? api(`/api/tasks?${authQuery()}`) : Promise.resolve([]),
           state.user.isBoss ? api(`/api/studio-expense-model?${authQuery()}`) : Promise.resolve(defaultStudioExpenseModel),
           state.user.isBoss ? api(`/api/monthly-fixed-expenses?${authQuery()}&month=${encodeURIComponent(state.fixedExpenseMonth)}`) : Promise.resolve([]),
           state.user.isBoss ? api(`/api/historical-revenues?${authQuery()}`) : Promise.resolve([])
@@ -1379,8 +1413,8 @@
         { key: "cases", label: "案件", icon: "briefcase" },
         { key: "calendar", label: "行事曆", icon: "calendar" }
       ];
+      if (canManageTasks()) items.push({ key: "tasks", label: "待辦", icon: "clipboard" });
       if (state.user.isBoss) {
-        items.push({ key: "tasks", label: "待辦", icon: "clipboard" });
         items.push({ key: "new", label: "新增", icon: "plus" });
         items.push({ key: "company", label: "行政", icon: "clipboard" });
         items.push({ key: "finance", label: "財務", icon: "chart" });
@@ -1406,21 +1440,23 @@
     }
 
     function renderNav() {
+      const reminderCount = taskReminderCount();
       els.bottomNav.innerHTML = navItems().map(item => `
         <button class="nav-btn ${state.page === item.key ? "active" : ""}" type="button" data-page="${item.key}" aria-label="${item.label}">
           ${icon(item.icon)}
           <span>${item.label}</span>
+          ${item.key === "tasks" && reminderCount ? `<span class="nav-alert">${reminderCount > 9 ? "9+" : reminderCount}</span>` : ""}
         </button>
       `).join("");
     }
 
     function renderApp() {
       if (!state.user) return;
-      if (!state.user.isBoss && !["home", "cases", "calendar", "expense"].includes(state.page)) state.page = "home";
+      if (!state.user.isBoss && !["home", "cases", "calendar", "expense", "tasks"].includes(state.page)) state.page = "home";
       renderNav();
       const titleMap = { home: "首頁", cases: "案件管理", tasks: "小案待辦", calendar: "行事曆", new: "新增案件", company: "行政", finance: "財務", studioExpenses: "工作室支出統計", historicalRevenue: "晨嵐歷史營收管理", expense: "報帳" };
       els.pageTitle.textContent = titleMap[state.page];
-      els.eyebrow.textContent = state.user.isBoss ? "老闆視角" : "";
+      els.eyebrow.textContent = state.user.isBoss ? "老闆視角" : canManageTasks() ? "店長監看" : "";
       els.logoutBtn.innerHTML = `<span>${state.user.icon}</span><span>登出</span>`;
       if (state.loading) {
         els.viewRoot.innerHTML = `<div class="panel"><p class="muted">正在讀取 Zeabur 資料庫...</p></div>`;
@@ -1615,6 +1651,8 @@
 
     const taskFilterOptions = [
       { key: "active", label: "進行中" },
+      { key: "reminders", label: "提醒" },
+      { key: "overdue", label: "逾時" },
       { key: "open", label: "待處理" },
       { key: "waiting_customer", label: "等客人" },
       { key: "snoozed", label: "已延後" },
@@ -1643,31 +1681,83 @@
 
     function filteredTasks() {
       const activeStatuses = new Set(["open", "in_progress", "waiting_customer", "snoozed"]);
-      return state.tasks.filter(task => {
+      return sortTasksForReminder(state.tasks.filter(task => {
+        const level = taskReminderLevel(task);
         const statusMatch =
           state.taskFilter === "all" ||
           (state.taskFilter === "active" && activeStatuses.has(task.status)) ||
+          (state.taskFilter === "reminders" && level !== "none") ||
+          (state.taskFilter === "overdue" && level === "overdue") ||
           task.status === state.taskFilter;
         const sourceMatch = state.taskSourceFilter === "all" || task.source === state.taskSourceFilter;
         return statusMatch && sourceMatch;
+      }));
+    }
+
+    function taskActionTime(task) {
+      return task.followUpAt || task.dueAt || task.createdAt || "";
+    }
+
+    function taskReminderLevel(task) {
+      if (!["open", "in_progress", "waiting_customer", "snoozed"].includes(task.status)) return "none";
+      const value = taskActionTime(task);
+      const time = value ? new Date(value).getTime() : NaN;
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 1);
+      if (!Number.isNaN(time) && time < start.getTime()) return "overdue";
+      if (["urgent", "high"].includes(task.priority)) return "high";
+      if (!Number.isNaN(time) && time < end.getTime()) return "today";
+      return "none";
+    }
+
+    function taskReminderText(task) {
+      const level = taskReminderLevel(task);
+      if (level === "overdue") return "逾時";
+      if (level === "today") return "今天";
+      if (level === "high") return "高優先";
+      return "追蹤";
+    }
+
+    function taskReminderCount() {
+      return activeTasks().filter(task => taskReminderLevel(task) !== "none").length;
+    }
+
+    function taskReminderRank(task) {
+      const level = taskReminderLevel(task);
+      if (level === "overdue") return 0;
+      if (level === "high") return 1;
+      if (level === "today") return 2;
+      return 3;
+    }
+
+    function sortTasksForReminder(tasks) {
+      return [...tasks].sort((a, b) => {
+        const rankDiff = taskReminderRank(a) - taskReminderRank(b);
+        if (rankDiff) return rankDiff;
+        const aTime = new Date(taskActionTime(a) || a.createdAt || 0).getTime() || 0;
+        const bTime = new Date(taskActionTime(b) || b.createdAt || 0).getTime() || 0;
+        return aTime - bTime;
       });
     }
 
     function taskMetrics() {
       const active = activeTasks();
-      const today = localDateString();
       return {
         open: active.filter(task => task.status === "open").length,
         high: active.filter(task => ["high", "urgent"].includes(task.priority)).length,
-        follow: active.filter(task => (task.followUpAt || "").slice(0, 10) <= today && task.followUpAt).length,
-        total: active.length
+        overdue: active.filter(task => taskReminderLevel(task) === "overdue").length,
+        follow: active.filter(task => ["overdue", "today"].includes(taskReminderLevel(task))).length,
+        total: active.length,
+        reminders: active.filter(task => taskReminderLevel(task) !== "none").length
       };
     }
 
     function renderTaskRows(tasks = activeTasks().slice(0, 6)) {
       if (!tasks.length) return emptyPanel("目前沒有待處理事項。");
-      return tasks.map(task => `
-        <div class="record-row">
+      return sortTasksForReminder(tasks).map(task => `
+        <div class="record-row ${taskReminderLevel(task) === "overdue" ? "task-alert" : taskReminderLevel(task) === "today" ? "task-today" : ""}">
           <div class="split">
             <div>
               <h3>${esc(task.title)}</h3>
@@ -1678,7 +1768,7 @@
           <p class="muted">${esc(task.summary || "沒有摘要。")}</p>
           <div class="split">
             <span class="small">負責 ${esc(task.assignedTo || "boss")} · 狀態 ${esc(taskLabel(taskStatusLabels, task.status))}</span>
-            <span class="small">${esc(task.followUpAt ? `追蹤 ${taskDate(task.followUpAt)}` : `建立 ${taskDate(task.createdAt)}`)}</span>
+            <span class="small">${esc(taskReminderText(task))} ${esc(taskActionTime(task) ? taskDate(taskActionTime(task)) : "未設定")}</span>
           </div>
           <button class="ghost" type="button" data-task="${task.id}">查看待辦</button>
         </div>
@@ -1686,7 +1776,7 @@
     }
 
     function renderTasks() {
-      if (!state.user.isBoss) {
+      if (!canManageTasks()) {
         state.page = "home";
         renderApp();
         return;
@@ -1698,7 +1788,7 @@
           <div class="metric"><span>進行中</span><b>${summary.total}</b></div>
           <div class="metric"><span>待處理</span><b>${summary.open}</b></div>
           <div class="metric"><span>高優先</span><b>${summary.high}</b></div>
-          <div class="metric"><span>今日追蹤</span><b>${summary.follow}</b></div>
+          <div class="metric"><span>逾時</span><b>${summary.overdue}</b></div>
         </div>
         <div class="section-title"><h3>狀態</h3></div>
         <div class="filter-row">
@@ -1736,10 +1826,10 @@
           <div class="grid metrics">
             <div class="metric"><span>待處理</span><b>${taskSummary.open}</b></div>
             <div class="metric"><span>高優先</span><b>${taskSummary.high}</b></div>
-            <div class="metric"><span>今日追蹤</span><b>${taskSummary.follow}</b></div>
+            <div class="metric"><span>逾時</span><b>${taskSummary.overdue}</b></div>
             <div class="metric"><span>全部進行中</span><b>${taskSummary.total}</b></div>
           </div>
-          <div class="grid">${renderTaskRows(activeTasks().slice(0, 6))}</div>
+          <div class="grid">${renderTaskRows(sortTasksForReminder(activeTasks()).slice(0, 6))}</div>
           <div class="section-title"><h3>員工概覽</h3></div>
           <div class="grid">
             ${employeeList().map(employee => {
@@ -3424,6 +3514,14 @@
     }
 
     function renderTaskConvertForm(task, originalText) {
+      if (!state.user?.isBoss) {
+        return `
+          <div class="task-note">
+            <h3>轉正式案件</h3>
+            <p class="muted">店長可以監看和更新待辦狀態；正式建案、報價金額仍由老闆確認。</p>
+          </div>
+        `;
+      }
       if (task.status === "converted" && task.linkedCaseId) {
         return `
           <div class="task-note">

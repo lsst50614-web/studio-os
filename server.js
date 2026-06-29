@@ -734,6 +734,22 @@ async function requireBoss(userId, token, res, message = "只有老闆可以操�
   return user;
 }
 
+function canManageTasks(user) {
+  if (!user) return false;
+  const role = cleanKey(user.role);
+  return Boolean(user.is_boss || role === "店長" || role === "manager" || role === "admin");
+}
+
+async function requireTaskManager(userId, token, res, message = "只有老闆或店長可以操作待辦") {
+  const user = await requireUser(userId, token, res, message);
+  if (!user) return null;
+  if (!canManageTasks(user)) {
+    res.status(403).json({ error: message });
+    return null;
+  }
+  return user;
+}
+
 function hasInternalTaskToken(req) {
   const expected = cleanText(process.env.STUDIO_TASK_INGEST_TOKEN);
   const actual = cleanText(req.get("x-internal-token"));
@@ -809,7 +825,7 @@ app.get("/api/cases", async (_req, res, next) => {
 
 app.get("/api/tasks", async (req, res, next) => {
   try {
-    const user = await requireBoss(req.query.requesterId, requestToken(req), res, "只有老闆可以讀取待辦");
+    const user = await requireTaskManager(req.query.requesterId, requestToken(req), res, "只有老闆或店長可以讀取待辦");
     if (!user) return;
     const conditions = [];
     const values = [];
@@ -911,7 +927,7 @@ app.post("/api/tasks", async (req, res, next) => {
 
 app.patch("/api/tasks/:id", async (req, res, next) => {
   try {
-    const user = await requireBoss(req.body?.requesterId, requestToken(req), res, "只有老闆可以更新待辦");
+    const user = await requireTaskManager(req.body?.requesterId, requestToken(req), res, "只有老闆或店長可以更新待辦");
     if (!user) return;
     const found = await pool.query("SELECT * FROM studio_tasks WHERE id = $1", [req.params.id]);
     if (!found.rows[0]) {
