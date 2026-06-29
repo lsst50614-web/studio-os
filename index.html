@@ -1525,6 +1525,7 @@
       if (canManageTasks()) items.push({ key: "tasks", label: "待辦", icon: "clipboard" });
       if (state.user.isBoss) {
         items.push({ key: "new", label: "新增", icon: "plus" });
+        items.push({ key: "marketing", label: "行銷", icon: "megaphone" });
         items.push({ key: "company", label: "行政", icon: "clipboard" });
         items.push({ key: "finance", label: "財務", icon: "chart" });
         items.push({ key: "studioExpenses", label: "支出", icon: "receipt" });
@@ -1543,7 +1544,8 @@
         clipboard: '<path d="M9 4h6l1 2h3v15H5V6h3z"/><path d="M9 11h6M9 15h6"/>',
         receipt: '<path d="M6 3h12v18l-2-1-2 1-2-1-2 1-2-1-2 1z"/><path d="M9 8h6M9 12h6M9 16h4"/>',
         calendar: '<path d="M8 2v4M16 2v4"/><path d="M3 10h18"/><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/>',
-        chart: '<path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-5"/><path d="M12 16V8"/><path d="M16 16v-9"/>'
+        chart: '<path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-5"/><path d="M12 16V8"/><path d="M16 16v-9"/>',
+        megaphone: '<path d="m3 11 18-6v14L3 13z"/><path d="M7 14v4a2 2 0 0 0 2 2h1"/><path d="M14 8v8"/>'
       };
       return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">${paths[name]}</svg>`;
     }
@@ -1567,7 +1569,7 @@
       if (!state.user) return;
       if (!state.user.isBoss && !["home", "cases", "calendar", "expense", "tasks"].includes(state.page)) state.page = "home";
       renderNav();
-      const titleMap = { home: "首頁", cases: "案件管理", tasks: "小案待辦", calendar: "行事曆", new: "新增案件", company: "行政", finance: "財務", studioExpenses: "工作室支出統計", historicalRevenue: "晨嵐歷史營收管理", expense: "報帳" };
+      const titleMap = { home: "首頁", cases: "案件管理", tasks: "小案待辦", calendar: "行事曆", new: "新增案件", marketing: "每週行銷", company: "行政", finance: "財務", studioExpenses: "工作室支出統計", historicalRevenue: "晨嵐歷史營收管理", expense: "報帳" };
       els.pageTitle.textContent = titleMap[state.page];
       els.eyebrow.textContent = state.user.isBoss ? "老闆視角" : canManageTasks() ? "店長監看" : "";
       els.logoutBtn.innerHTML = `<span>${state.user.icon}</span><span>登出</span>`;
@@ -1584,6 +1586,7 @@
       if (state.page === "tasks") renderTasks();
       if (state.page === "calendar") renderCalendar();
       if (state.page === "new") renderNewCase();
+      if (state.page === "marketing") renderMarketing();
       if (state.page === "company") renderCompany();
       if (state.page === "finance") renderFinance();
       if (state.page === "studioExpenses") renderStudioExpenses();
@@ -1775,6 +1778,96 @@
     ];
 
     const taskSourceOptions = ["all", "line", "ig", "google_map", "website", "manual"];
+
+    const marketingPackages = [
+      {
+        title: "半首單唱 Cover",
+        price: "9,800",
+        tag: "去人聲 / 既有伴奏",
+        note: "適合想先完成一支短版翻唱的人。要講清楚：這不是重新編曲，會包含錄唱、基本修音、混音、母帶、簡易影像，含錄音室 2 小時。"
+      },
+      {
+        title: "半首重新編曲 Cover",
+        price: "16,000",
+        tag: "IG 風格主推",
+        note: "適合想做得更像晨嵐 IG 作品的人。會重新做伴奏方向，聲音更客製，適合 Reels / Shorts 主打。"
+      },
+      {
+        title: "整首重新編曲 Cover",
+        price: "25,000",
+        tag: "完整作品",
+        note: "適合要完整收藏、公開發佈或當作作品集的人。正式排程前仍需確認歌曲、用途、授權與製作方向。"
+      },
+      {
+        title: "Podcast 入門錄製",
+        price: "1,500 / 集起",
+        tag: "錄音 + 剪輯",
+        note: "適合一般人、品牌或創作者開始做節目。基本 60 分鐘內、最多 4 人；多集、商業案、上架需求再人工確認。"
+      }
+    ];
+
+    const weeklyMarketingPlan = [
+      {
+        day: "一",
+        title: "翻唱短版案例",
+        channel: "IG Reels / FB",
+        goal: "讓一般人聽懂：我也可以來錄",
+        copy: `想把喜歡的歌唱成自己的版本嗎？晨嵐可以從短版 Cover 開始，錄唱、修音、混音、母帶和簡易影像一次完成。
+
+如果你想做像我們 IG 那種重新編曲版本，也可以先把歌名傳給我們，我們會幫你判斷適合 9,800 單唱，還是重新編曲方案。`
+      },
+      {
+        day: "二",
+        title: "方案說明",
+        channel: "限動 / 貼文",
+        goal: "降低私訊前的壓力",
+        copy: `翻唱不是只有一種做法。
+
+9,800：使用去人聲或既有伴奏錄唱，適合先做半首短版。
+16,000：半首重新編曲，適合想要更像 IG 作品的聲音。
+25,000：整首重新編曲，適合完整作品。
+
+不確定選哪一種，直接傳歌名給我們就好。`
+      },
+      {
+        day: "三",
+        title: "Podcast 入門",
+        channel: "IG / FB",
+        goal: "吸引一般創作者和品牌",
+        copy: `想開始做 Podcast，但不想自己研究設備和剪輯？
+
+晨嵐可以協助錄音與基本剪輯，單集 60 分鐘內，最多 4 人。錄音 1,000 / 集，剪輯 1,000 / 集，錄音加剪輯 1,500 / 集起。
+
+你只要先準備主題和來賓，我們幫你把聲音整理好。`
+      },
+      {
+        day: "四",
+        title: "錄音室舒服感",
+        channel: "Google Map / 限動",
+        goal: "建立自然、沒壓力的品牌印象",
+        copy: `很多人第一次進錄音室會緊張，其實不用。
+
+晨嵐的錄音方式會先讓你熟悉環境、試唱、慢慢調整狀態。你不用一開始就唱得完美，我們會陪你找到比較自然的聲音。`
+      },
+      {
+        day: "五",
+        title: "週末預約提醒",
+        channel: "限動",
+        goal: "拉快速小案",
+        copy: `這週想錄一段 Cover 或 Podcast 嗎？
+
+可以先私訊我們：歌曲 / 想錄的長度 / 用途 / 可能的時間。確認適合的方案後，再幫你安排錄音時段。`
+      },
+      {
+        day: "六日",
+        title: "真實回饋邀請",
+        channel: "LINE / Google Map",
+        goal: "自然累積評價，不洗評價",
+        copy: `如果這次錄音或製作體驗對你有幫助，也歡迎幫晨嵐留一個 Google 評價。
+
+不用寫很長，簡單分享你的感受就可以，這會讓更多第一次想錄音的人比較安心。`
+      }
+    ];
 
     function taskLabel(map, key) {
       return map[key] || key || "未設定";
@@ -2008,6 +2101,66 @@
           ${items.length ? renderCaseCards(items) : emptyPanel("目前沒有符合條件的案件。")}
         </div>
       `;
+    }
+
+    function marketingCopy(key) {
+      const plan = weeklyMarketingPlan.find(item => item.day === key || item.title === key);
+      return plan?.copy || "";
+    }
+
+    function renderMarketing() {
+      if (!state.user.isBoss) {
+        state.page = "home";
+        renderApp();
+        return;
+      }
+      els.viewRoot.innerHTML = `
+        <div class="panel">
+          <h2>本週主軸：把服務包成一般人聽得懂的商品</h2>
+          <p class="muted">先主推翻唱短版與 Podcast 入門，製作案保留人工報價。原則是輕鬆、自然、不要壓迫；每篇都只問一個下一步。</p>
+        </div>
+        <div class="section-title"><h3>主推商品</h3></div>
+        <div class="grid">
+          ${marketingPackages.map(item => `
+            <div class="record-row">
+              <div class="split">
+                <div>
+                  <h3>${esc(item.title)}</h3>
+                  <p class="small">${esc(item.tag)}</p>
+                </div>
+                <span class="badge">${esc(item.price)}</span>
+              </div>
+              <p class="muted">${esc(item.note)}</p>
+            </div>
+          `).join("")}
+        </div>
+        <div class="section-title"><h3>一週內容節奏</h3></div>
+        <div class="grid">
+          ${weeklyMarketingPlan.map(item => `
+            <div class="record-row">
+              <div class="split">
+                <div>
+                  <h3>${esc(item.day)}｜${esc(item.title)}</h3>
+                  <p class="small">${esc(item.channel)} · ${esc(item.goal)}</p>
+                </div>
+                <button class="ghost compact-action" type="button" data-copy-marketing="${esc(item.day)}">複製</button>
+              </div>
+              <p class="task-reply">${esc(item.copy)}</p>
+            </div>
+          `).join("")}
+        </div>
+        <div class="panel">
+          <h3>回覆原則</h3>
+          <p class="muted">翻唱一定要分清楚 9,800 是去人聲 / 既有伴奏，不是重新編曲。看到「像你們 IG 那種」就先提醒多數 IG 範例是重新編曲，再讓客人傳歌名判斷。</p>
+        </div>
+      `;
+    }
+
+    async function copyMarketing(day) {
+      const text = marketingCopy(day);
+      if (!text) return;
+      await navigator.clipboard.writeText(text);
+      alert("已複製行銷文案。");
     }
 
     function renderCalendar() {
@@ -4087,6 +4240,9 @@
 
       const copyTaskBtn = event.target.closest("[data-copy-task-reply]");
       if (copyTaskBtn) copyTaskReply(copyTaskBtn.dataset.copyTaskReply).catch(error => alert(error.message));
+
+      const copyMarketingBtn = event.target.closest("[data-copy-marketing]");
+      if (copyMarketingBtn) copyMarketing(copyMarketingBtn.dataset.copyMarketing).catch(error => alert(error.message));
 
       const addSplitBtn = event.target.closest("[data-add-split-row]");
       if (addSplitBtn) addSplitRow();
