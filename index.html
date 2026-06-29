@@ -914,6 +914,8 @@
       user: null,
       page: "home",
       filter: "全部",
+      taskFilter: "active",
+      taskSourceFilter: "all",
       cases: [],
       records: [],
       expenses: [],
@@ -1378,6 +1380,7 @@
         { key: "calendar", label: "行事曆", icon: "calendar" }
       ];
       if (state.user.isBoss) {
+        items.push({ key: "tasks", label: "待辦", icon: "clipboard" });
         items.push({ key: "new", label: "新增", icon: "plus" });
         items.push({ key: "company", label: "行政", icon: "clipboard" });
         items.push({ key: "finance", label: "財務", icon: "chart" });
@@ -1415,7 +1418,7 @@
       if (!state.user) return;
       if (!state.user.isBoss && !["home", "cases", "calendar", "expense"].includes(state.page)) state.page = "home";
       renderNav();
-      const titleMap = { home: "首頁", cases: "案件管理", calendar: "行事曆", new: "新增案件", company: "行政", finance: "財務", studioExpenses: "工作室支出統計", historicalRevenue: "晨嵐歷史營收管理", expense: "報帳" };
+      const titleMap = { home: "首頁", cases: "案件管理", tasks: "小案待辦", calendar: "行事曆", new: "新增案件", company: "行政", finance: "財務", studioExpenses: "工作室支出統計", historicalRevenue: "晨嵐歷史營收管理", expense: "報帳" };
       els.pageTitle.textContent = titleMap[state.page];
       els.eyebrow.textContent = state.user.isBoss ? "老闆視角" : "";
       els.logoutBtn.innerHTML = `<span>${state.user.icon}</span><span>登出</span>`;
@@ -1429,6 +1432,7 @@
       }
       if (state.page === "home") renderHome();
       if (state.page === "cases") renderCases();
+      if (state.page === "tasks") renderTasks();
       if (state.page === "calendar") renderCalendar();
       if (state.page === "new") renderNewCase();
       if (state.page === "company") renderCompany();
@@ -1590,6 +1594,15 @@
       unknown: "未分類"
     };
 
+    const taskSourceLabels = {
+      all: "全部來源",
+      line: "LINE",
+      ig: "IG",
+      google_map: "Google Map",
+      website: "網站",
+      manual: "手動"
+    };
+
     const taskStatusLabels = {
       open: "待處理",
       in_progress: "處理中",
@@ -1599,6 +1612,18 @@
       done: "已處理",
       lost: "流失"
     };
+
+    const taskFilterOptions = [
+      { key: "active", label: "進行中" },
+      { key: "open", label: "待處理" },
+      { key: "waiting_customer", label: "等客人" },
+      { key: "snoozed", label: "已延後" },
+      { key: "done", label: "已處理" },
+      { key: "lost", label: "流失" },
+      { key: "all", label: "全部" }
+    ];
+
+    const taskSourceOptions = ["all", "line", "ig", "google_map", "website", "manual"];
 
     function taskLabel(map, key) {
       return map[key] || key || "未設定";
@@ -1614,6 +1639,18 @@
     function activeTasks() {
       const activeStatuses = new Set(["open", "in_progress", "waiting_customer", "snoozed"]);
       return state.tasks.filter(task => activeStatuses.has(task.status));
+    }
+
+    function filteredTasks() {
+      const activeStatuses = new Set(["open", "in_progress", "waiting_customer", "snoozed"]);
+      return state.tasks.filter(task => {
+        const statusMatch =
+          state.taskFilter === "all" ||
+          (state.taskFilter === "active" && activeStatuses.has(task.status)) ||
+          task.status === state.taskFilter;
+        const sourceMatch = state.taskSourceFilter === "all" || task.source === state.taskSourceFilter;
+        return statusMatch && sourceMatch;
+      });
     }
 
     function taskMetrics() {
@@ -1646,6 +1683,41 @@
           <button class="ghost" type="button" data-task="${task.id}">查看待辦</button>
         </div>
       `).join("");
+    }
+
+    function renderTasks() {
+      if (!state.user.isBoss) {
+        state.page = "home";
+        renderApp();
+        return;
+      }
+      const tasks = filteredTasks();
+      const summary = taskMetrics();
+      els.viewRoot.innerHTML = `
+        <div class="grid metrics">
+          <div class="metric"><span>進行中</span><b>${summary.total}</b></div>
+          <div class="metric"><span>待處理</span><b>${summary.open}</b></div>
+          <div class="metric"><span>高優先</span><b>${summary.high}</b></div>
+          <div class="metric"><span>今日追蹤</span><b>${summary.follow}</b></div>
+        </div>
+        <div class="section-title"><h3>狀態</h3></div>
+        <div class="filter-row">
+          ${taskFilterOptions.map(option => `
+            <button class="chip ${state.taskFilter === option.key ? "active" : ""}" type="button" data-task-filter="${esc(option.key)}">${esc(option.label)}</button>
+          `).join("")}
+        </div>
+        <div class="section-title"><h3>來源</h3></div>
+        <div class="filter-row">
+          ${taskSourceOptions.map(source => `
+            <button class="chip ${state.taskSourceFilter === source ? "active" : ""}" type="button" data-task-source-filter="${esc(source)}">${esc(taskLabel(taskSourceLabels, source))}</button>
+          `).join("")}
+        </div>
+        <div class="section-title">
+          <h3>線索列表</h3>
+          <button class="ghost compact-action" type="button" data-refresh-tasks>重新整理</button>
+        </div>
+        <div class="grid">${renderTaskRows(tasks)}</div>
+      `;
     }
 
     function renderHome() {
@@ -3628,6 +3700,23 @@
       if (filterBtn) {
         state.filter = filterBtn.dataset.filter;
         renderCases();
+      }
+
+      const taskFilterBtn = event.target.closest("[data-task-filter]");
+      if (taskFilterBtn) {
+        state.taskFilter = taskFilterBtn.dataset.taskFilter;
+        renderTasks();
+      }
+
+      const taskSourceFilterBtn = event.target.closest("[data-task-source-filter]");
+      if (taskSourceFilterBtn) {
+        state.taskSourceFilter = taskSourceFilterBtn.dataset.taskSourceFilter;
+        renderTasks();
+      }
+
+      const refreshTasksBtn = event.target.closest("[data-refresh-tasks]");
+      if (refreshTasksBtn) {
+        refreshCases().catch(error => alert(error.message));
       }
 
       const caseBtn = event.target.closest("[data-case]");
