@@ -975,6 +975,91 @@ app.patch("/api/tasks/:id", async (req, res, next) => {
   }
 });
 
+
+app.post("/api/tasks/:id/convert-case", async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const body = req.body || {};
+    if (!(await requireBoss(body.requesterId, requestToken(req), res, "只有老闆可以把待辦轉成案件"))) return;
+    const found = await client.query("SELECT * FROM studio_tasks WHERE id = $1", [req.params.id]);
+    if (!found.rows[0]) {
+      res.status(404).json({ error: "找不到待辦" });
+      return;
+    }
+
+    const task = toTask(found.rows[0]);
+    const type = caseTypeAliases[body.type] || body.type;
+    if (!body.name || !type || !body.client || !body.owner || !body.start || !body.due) {
+      res.status(400).json({ error: "缺少必要欄位" });
+      return;
+    }
+    if (!caseTypes[type]) {
+      res.status(400).json({ error: "案件種類不正確" });
+      return;
+    }
+    if (!statuses.has(body.status || "新接案")) {
+      res.status(400).json({ error: "案件狀態不正確" });
+      return;
+    }
+
+    const quote = cleanNumber(body.quote);
+    const cost = cleanNumber(body.cost);
+    const rentalHours = cleanNumber(body.rentalHours);
+    const rentalHourlyRate = cleanNumber(body.rentalHourlyRate);
+    const splits = normalizedSplits(body.splits, quote);
+    const id = await nextCaseId();
+    const checklist = caseTypes[type].map(() => false);
+    const sourceNote = [
+      `來源待辦 #${task.id}（${task.source}${task.sourceRef ? ` / ${task.sourceRef}` : ""}）`,
+      task.summary ? `待辦摘要：${task.summary}` : "",
+      task.suggestedReply ? `建議回覆：${task.suggestedReply}` : ""
+    ].filter(Boolean).join("\n");
+    const notes = [cleanText(body.notes), sourceNote].filter(Boolean).join("\n\n");
+
+    await client.query("BEGIN");
+    const inserted = await client.query(
+      `INSERT INTO studio_cases
+        (id, name, type, client, owner, start_date, due_date, quote, cost, rental_hours, rental_hourly_rate, rental_pricing_note, status, notes, checklist, drive_folder_url, source_material_url, splits)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16, $17, $18::jsonb)
+       RETURNING *`,
+      [
+        id,
+        cleanText(body.name),
+        type,
+        cleanText(body.client),
+        cleanText(body.owner),
+        body.start,
+        body.due,
+        quote,
+        cost,
+        rentalHours,
+        Math.round(rentalHourlyRate),
+        cleanText(body.rentalPricingNote),
+        body.status || "新接案",
+        notes,
+        JSON.stringify(checklist),
+        cleanUrl(body.driveFolderUrl),
+        cleanUrl(body.sourceMaterialUrl),
+        JSON.stringify(splits)
+      ]
+    );
+    const updated = await client.query(
+      `UPDATE studio_tasks
+       SET status = 'converted', linked_case_id = $1, notification_status = 'acknowledged', updated_at = now()
+       WHERE id = $2
+       RETURNING *`,
+      [id, req.params.id]
+    );
+    await client.query("COMMIT");
+    res.status(201).json({ case: toCase(inserted.rows[0]), task: toTask(updated.rows[0]) });
+  } catch (error) {
+    try { await client.query("ROLLBACK"); } catch (_rollbackError) {}
+    next(error);
+  } finally {
+    client.release();
+  }
+});
+
 app.post("/api/login", async (req, res, next) => {
   try {
     const email = cleanEmail(req.body?.email);

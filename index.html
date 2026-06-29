@@ -3387,6 +3387,131 @@
       return date.toISOString();
     }
 
+
+    function taskDefaultCaseType(task) {
+      const map = {
+        cover: "包案製作",
+        podcast: "Podcast 錄音",
+        production: "包案製作",
+        recording: "錄音",
+        mixing: "混音",
+        mastering: "母帶",
+        scoring: "廣告配樂",
+        course: "歌唱課"
+      };
+      return map[task.serviceType] || "包案製作";
+    }
+
+    function taskDefaultCaseName(task) {
+      const customer = task.customerName || task.customerHandle || "客戶";
+      const service = taskLabel(serviceTypeLabels, task.serviceType);
+      return `${customer}｜${service}詢問`;
+    }
+
+    function taskDefaultDue(task) {
+      const date = new Date();
+      const days = ["recording", "podcast"].includes(task.serviceType) ? 7 : 14;
+      date.setDate(date.getDate() + days);
+      return localDateString(date);
+    }
+
+    function taskConvertNotes(task, originalText) {
+      return [
+        task.summary ? `待辦摘要：${task.summary}` : "",
+        originalText ? `客戶原訊息：${originalText}` : "",
+        task.suggestedReply ? `建議回覆：${task.suggestedReply}` : ""
+      ].filter(Boolean).join("\n\n");
+    }
+
+    function renderTaskConvertForm(task, originalText) {
+      if (task.status === "converted" && task.linkedCaseId) {
+        return `
+          <div class="task-note">
+            <div class="split">
+              <div>
+                <h3>已轉正式案件</h3>
+                <p class="muted">這筆待辦已連到 ${esc(task.linkedCaseId)}。</p>
+              </div>
+              <button class="ghost compact-action" type="button" data-case="${esc(task.linkedCaseId)}">打開案件</button>
+            </div>
+          </div>
+        `;
+      }
+      const type = taskDefaultCaseType(task);
+      const client = task.customerName || task.customerHandle || "LINE 客戶";
+      const notes = taskConvertNotes(task, originalText);
+      return `
+        <form id="taskConvertForm" class="task-note" data-task-convert-form="${esc(task.id)}">
+          <h3>轉正式案件</h3>
+          <div class="field"><label for="taskCaseName">案件名稱</label><input id="taskCaseName" required value="${esc(taskDefaultCaseName(task))}"></div>
+          <div class="field"><label for="taskCaseType">案件種類</label><select id="taskCaseType">${workOptions.map(option => `<option ${option === type ? "selected" : ""}>${esc(option)}</option>`).join("")}</select></div>
+          <div class="field"><label for="taskCaseClient">客戶名稱</label><input id="taskCaseClient" required value="${esc(client)}"></div>
+          <div class="field"><label for="taskCaseOwner">主要負責人</label><select id="taskCaseOwner" required>${employeeOptions("", true)}</select></div>
+          <div class="grid metrics">
+            <div class="field"><label for="taskCaseStart">開始日期</label><input id="taskCaseStart" type="date" required value="${esc(localDateString())}"></div>
+            <div class="field"><label for="taskCaseDue">截止日期</label><input id="taskCaseDue" type="date" required value="${esc(taskDefaultDue(task))}"></div>
+          </div>
+          <div class="grid metrics">
+            <div class="field"><label for="taskCaseQuote">報價金額</label><input id="taskCaseQuote" type="number" min="0" inputmode="numeric" value="0"></div>
+            <div class="field"><label for="taskCaseCost">預估成本</label><input id="taskCaseCost" type="number" min="0" inputmode="numeric" value="0"></div>
+          </div>
+          <div class="field"><label for="taskCaseNotes">案件備註</label><textarea id="taskCaseNotes">${esc(notes)}</textarea></div>
+          <button class="primary" type="submit">建立案件並標記已轉</button>
+        </form>
+      `;
+    }
+
+    async function convertTaskToCase(event) {
+      event.preventDefault();
+      const form = event.target;
+      const id = form.dataset.taskConvertForm;
+      const payload = {
+        name: document.querySelector("#taskCaseName").value.trim(),
+        type: document.querySelector("#taskCaseType").value,
+        client: document.querySelector("#taskCaseClient").value.trim(),
+        owner: document.querySelector("#taskCaseOwner").value,
+        start: document.querySelector("#taskCaseStart").value,
+        due: document.querySelector("#taskCaseDue").value,
+        quote: Number(document.querySelector("#taskCaseQuote").value || 0),
+        cost: Number(document.querySelector("#taskCaseCost").value || 0),
+        status: "新接案",
+        notes: document.querySelector("#taskCaseNotes").value.trim(),
+        splits: []
+      };
+      if (state.user?.preview) {
+        const caseId = `PREVIEW-${String(state.cases.length + 1).padStart(3, "0")}`;
+        const item = {
+          id: caseId,
+          ...payload,
+          checklist: caseChecklist(payload.type).map(() => false),
+          rentalHours: 0,
+          rentalHourlyRate: 0,
+          rentalPricingNote: "",
+          driveFolderUrl: "",
+          sourceMaterialUrl: "",
+          deliveryUrl: "",
+          deliveryNotes: "",
+          reviewNotes: ""
+        };
+        state.cases.unshift(item);
+        state.tasks = state.tasks.map(task => String(task.id) === String(id) ? { ...task, status: "converted", linkedCaseId: caseId } : task);
+        state.page = "cases";
+        renderApp();
+        openCase(caseId);
+        return;
+      }
+      const result = await api(`/api/tasks/${id}/convert-case`, {
+        method: "POST",
+        body: JSON.stringify(authPayload(payload))
+      });
+      state.cases.unshift(result.case);
+      state.tasks = state.tasks.map(task => String(task.id) === String(id) ? result.task : task);
+      state.page = "cases";
+      state.filter = "全部";
+      renderApp();
+      openCase(result.case.id);
+    }
+
     function openTask(id) {
       const task = state.tasks.find(entry => String(entry.id) === String(id));
       if (!task) return;
@@ -3424,6 +3549,7 @@
           <h3>下一步</h3>
           <p class="muted">第一版先由老闆或店長到 LINE / IG 官方帳號人工回覆。之後串接 API 後，這裡會升級成確認送出的審核畫面。</p>
         </div>
+        ${renderTaskConvertForm(task, originalText)}
         <div class="form-actions">
           <button class="ghost" type="button" data-task-status="in_progress" data-task-id="${esc(task.id)}">開始處理</button>
           <button class="ghost" type="button" data-task-status="waiting_customer" data-task-id="${esc(task.id)}">等客人</button>
@@ -3899,6 +4025,7 @@
     });
     document.addEventListener("submit", event => {
       if (event.target.id === "caseForm") createCase(event).catch(error => alert(error.message));
+      if (event.target.id === "taskConvertForm") convertTaskToCase(event).catch(error => alert(error.message));
       if (event.target.id === "companyRecordForm") createCompanyRecord(event).catch(error => alert(error.message));
       if (event.target.id === "studioExpenseForm") updateStudioExpenseModel(event).catch(error => alert(error.message));
       if (event.target.matches("[data-fixed-expense-for]")) updateMonthlyFixedExpense(event).catch(error => alert(error.message));
