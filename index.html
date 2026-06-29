@@ -438,6 +438,24 @@
       box-shadow: inset 3px 0 0 var(--yellow);
     }
 
+    .notice-banner {
+      position: sticky;
+      top: 0;
+      z-index: 12;
+      margin: 0 0 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 99, 99, .42);
+      background: rgba(255, 99, 99, .14);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .notice-banner strong {
+      color: var(--red);
+    }
+
     .nav-btn svg {
       width: 21px;
       height: 21px;
@@ -960,12 +978,19 @@
       revenueVisibleCount: 8,
       editingRevenueId: null,
       loading: false,
-      apiError: ""
+      apiError: "",
+      notice: "",
+      taskAutoRefreshActive: false,
+      taskSnapshotReady: false,
+      lastTaskSignature: "",
+      taskNotificationsEnabled: localStorage.getItem("studio-os-task-notifications") === "true"
     };
 
     const sessionKey = "studio-os-session-user";
     let revenueSearchComposing = false;
     let revenueSearchTimer = null;
+    let taskRefreshTimer = null;
+    let noticeTimer = null;
 
     const els = {
       loginScreen: document.querySelector("#loginScreen"),
@@ -1144,10 +1169,13 @@
         state.user = JSON.parse(raw);
         if (!state.user?.token) throw new Error("session token missing");
         state.page = "home";
+        state.taskSnapshotReady = false;
+        state.lastTaskSignature = "";
         els.loginScreen.classList.add("hidden");
         els.appScreen.classList.remove("hidden");
         els.bottomNav.classList.remove("hidden");
         await refreshCases();
+        startTaskAutoRefresh();
       } catch (_error) {
         state.user = null;
         clearSession();
@@ -1284,10 +1312,83 @@
       return Boolean(user.isBoss || role === "店長" || role === "manager" || role === "admin");
     }
 
-    async function refreshCases() {
-      state.loading = true;
-      state.apiError = "";
+    function activeTaskSignature(tasks = state.tasks) {
+      return sortTasksForReminder(tasks.filter(task => ["open", "in_progress", "waiting_customer", "snoozed"].includes(task.status)))
+        .map(task => `${task.id}:${task.status}:${task.priority}:${task.followUpAt || ""}:${task.updatedAt || ""}`)
+        .join("|");
+    }
+
+    function showNotice(message) {
+      state.notice = message;
+      if (noticeTimer) clearTimeout(noticeTimer);
+      noticeTimer = setTimeout(() => {
+        state.notice = "";
+        renderApp();
+      }, 9000);
+    }
+
+    function maybeSendDeviceNotification(title, body) {
+      if (!state.taskNotificationsEnabled || typeof Notification === "undefined" || Notification.permission !== "granted") return;
+      try {
+        new Notification(title, { body, tag: "studio-os-task-reminder", renotify: true });
+      } catch (_error) {}
+    }
+
+    function handleTaskReminderChange(nextTasks) {
+      if (!canManageTasks()) return;
+      const nextSignature = activeTaskSignature(nextTasks);
+      const nextReminderCount = nextTasks.filter(task => taskReminderLevel(task) !== "none").length;
+      const previousSignature = state.lastTaskSignature;
+      if (!state.taskSnapshotReady) {
+        state.taskSnapshotReady = true;
+        state.lastTaskSignature = nextSignature;
+        return;
+      }
+      state.lastTaskSignature = nextSignature;
+      if (nextSignature === previousSignature) return;
+      const label = nextReminderCount ? `目前有 ${nextReminderCount} 筆待辦需要注意。` : "待辦狀態已更新。";
+      showNotice(label);
+      maybeSendDeviceNotification("晨嵐小案待辦", label);
+    }
+
+    async function requestTaskNotifications() {
+      if (typeof Notification === "undefined") {
+        alert("這個瀏覽器目前不支援本機通知。APP 內提醒仍會正常顯示。");
+        return;
+      }
+      const permission = await Notification.requestPermission();
+      state.taskNotificationsEnabled = permission === "granted";
+      localStorage.setItem("studio-os-task-notifications", state.taskNotificationsEnabled ? "true" : "false");
       renderApp();
+      alert(state.taskNotificationsEnabled ? "已開啟此裝置的待辦通知。" : "尚未開啟通知；你仍可以看 APP 內紅色提醒。");
+    }
+
+    function stopTaskAutoRefresh() {
+      if (taskRefreshTimer) clearInterval(taskRefreshTimer);
+      taskRefreshTimer = null;
+      state.taskAutoRefreshActive = false;
+    }
+
+    function startTaskAutoRefresh() {
+      stopTaskAutoRefresh();
+      if (!canManageTasks()) return;
+      state.taskAutoRefreshActive = true;
+      taskRefreshTimer = setInterval(() => {
+        if (!state.user || !canManageTasks() || document.hidden) return;
+        refreshCases({ silent: true }).catch(error => {
+          state.apiError = error.message;
+          renderApp();
+        });
+      }, 60000);
+    }
+
+    async function refreshCases(options = {}) {
+      const silent = Boolean(options.silent);
+      if (!silent) {
+        state.loading = true;
+        state.apiError = "";
+        renderApp();
+      }
       if (state.user?.preview) {
         applyPreviewData();
         state.loading = false;
@@ -1309,6 +1410,7 @@
         state.records = records;
         state.expenses = expenses;
         state.payments = payments;
+        handleTaskReminderChange(tasks);
         state.tasks = tasks;
         state.studioExpenseModel = studioExpenseModel;
         state.monthlyFixedExpenses = monthlyFixedExpenses;
@@ -1326,7 +1428,7 @@
         state.users = [];
         state.studioExpenseModel = defaultStudioExpenseModel;
       } finally {
-        state.loading = false;
+        if (!silent) state.loading = false;
         renderApp();
       }
     }
@@ -1377,6 +1479,8 @@
       }
       state.user = account;
       state.page = "home";
+      state.taskSnapshotReady = false;
+      state.lastTaskSignature = "";
       saveSession();
       els.loginError.textContent = "";
       els.username.value = "";
@@ -1385,20 +1489,25 @@
       els.appScreen.classList.remove("hidden");
       els.bottomNav.classList.remove("hidden");
       await refreshCases();
+      startTaskAutoRefresh();
     }
 
     async function loginPreview() {
       state.user = previewUser;
       state.page = "home";
+      state.taskSnapshotReady = false;
+      state.lastTaskSignature = "";
       saveSession();
       els.loginError.textContent = "";
       els.loginScreen.classList.add("hidden");
       els.appScreen.classList.remove("hidden");
       els.bottomNav.classList.remove("hidden");
       await refreshCases();
+      startTaskAutoRefresh();
     }
 
     function logout() {
+      stopTaskAutoRefresh();
       state.user = null;
       clearSession();
       els.loginScreen.classList.remove("hidden");
@@ -1437,6 +1546,10 @@
         chart: '<path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-5"/><path d="M12 16V8"/><path d="M16 16v-9"/>'
       };
       return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">${paths[name]}</svg>`;
+    }
+
+    function renderNotice() {
+      return state.notice ? `<div class="notice-banner"><strong>提醒</strong> ${esc(state.notice)}</div>` : "";
     }
 
     function renderNav() {
@@ -1784,6 +1897,7 @@
       const tasks = filteredTasks();
       const summary = taskMetrics();
       els.viewRoot.innerHTML = `
+        ${renderNotice()}
         <div class="grid metrics">
           <div class="metric"><span>進行中</span><b>${summary.total}</b></div>
           <div class="metric"><span>待處理</span><b>${summary.open}</b></div>
@@ -1804,7 +1918,10 @@
         </div>
         <div class="section-title">
           <h3>線索列表</h3>
-          <button class="ghost compact-action" type="button" data-refresh-tasks>重新整理</button>
+          <div class="form-actions">
+            <button class="ghost compact-action" type="button" data-enable-task-notifications>${state.taskNotificationsEnabled ? "通知已開" : "開啟通知"}</button>
+            <button class="ghost compact-action" type="button" data-refresh-tasks>重新整理</button>
+          </div>
         </div>
         <div class="grid">${renderTaskRows(tasks)}</div>
       `;
@@ -1816,6 +1933,7 @@
       if (state.user.isBoss) {
         const taskSummary = taskMetrics();
         els.viewRoot.innerHTML = `
+          ${renderNotice()}
           <div class="grid metrics">
             <div class="metric"><span>本月總收入</span><b>${money(s.total)}</b></div>
             <div class="metric"><span>進行中案件</span><b>${s.ongoing}</b></div>
@@ -3943,6 +4061,11 @@
         refreshCases().catch(error => alert(error.message));
       }
 
+      const enableTaskNotificationsBtn = event.target.closest("[data-enable-task-notifications]");
+      if (enableTaskNotificationsBtn) {
+        requestTaskNotifications().catch(error => alert(error.message));
+      }
+
       const caseBtn = event.target.closest("[data-case]");
       if (caseBtn) openCase(caseBtn.dataset.case);
 
@@ -4141,6 +4264,17 @@
       if (event.target.id === "caseFinancialForm") updateCaseFinancials(event).catch(error => alert(error.message));
       if (event.target.id === "deliveryForm") updateDelivery(event).catch(error => alert(error.message));
       if (event.target.id === "paymentScheduleForm") createPaymentSchedule(event).catch(error => alert(error.message));
+    });
+
+    window.addEventListener("online", () => {
+      if (state.user) refreshCases({ silent: true }).catch(error => {
+        state.apiError = error.message;
+        renderApp();
+      });
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && state.user && canManageTasks()) refreshCases({ silent: true }).catch(() => {});
     });
 
     restoreSession().catch(error => {
