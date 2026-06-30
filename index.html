@@ -1750,6 +1750,7 @@
       all: "全部來源",
       line: "LINE",
       ig: "IG",
+      facebook: "FB",
       google_map: "Google Map",
       website: "網站",
       manual: "手動"
@@ -1777,7 +1778,7 @@
       { key: "all", label: "全部" }
     ];
 
-    const taskSourceOptions = ["all", "line", "ig", "google_map", "website", "manual"];
+    const taskSourceOptions = ["all", "line", "ig", "facebook", "google_map", "website", "manual"];
 
     const marketingPackages = [
       {
@@ -2177,11 +2178,98 @@
       return {
         line: active.filter(task => task.source === "line").length,
         ig: active.filter(task => task.source === "ig").length,
+        facebook: active.filter(task => task.source === "facebook").length,
         google: active.filter(task => task.source === "google_map").length,
         cover: active.filter(task => task.serviceType === "cover").length,
         podcast: active.filter(task => task.serviceType === "podcast").length,
         quote: active.filter(task => ["quote", "review"].includes(task.taskType)).length
       };
+    }
+
+    function inferManualServiceType(text) {
+      const value = cleanKey(text);
+      if (/podcast|播客|節目|訪談|主持|來賓/.test(value)) return "podcast";
+      if (/翻唱|cover|reels|短影音|短版|ig|instagram|唱歌|伴奏|去人聲|重新編曲/.test(value)) return "cover";
+      if (/錄音|錄唱|錄人聲|配音|demo/.test(value)) return "recording";
+      if (/混音|mix|修音|音準|母帶|master/.test(value)) return "mixing";
+      if (/製作|編曲|原創|單曲|寫歌|作曲|作詞/.test(value)) return "production";
+      return "unknown";
+    }
+
+    function inferManualTaskType(text, serviceType) {
+      const value = cleanKey(text);
+      if (/多少|價格|價錢|費用|報價|怎麼算|方案/.test(value)) return "quote";
+      if (/時間|預約|檔期|哪天|週末|今天|明天/.test(value)) return "schedule";
+      if (serviceType === "production" || /商用|授權|上架|發行|版權/.test(value)) return "review";
+      return "review";
+    }
+
+    function draftManualLeadReply(text, source) {
+      const serviceType = inferManualServiceType(text);
+      const value = cleanKey(text);
+      if (serviceType === "cover") {
+        if (/ig|instagram|reels|短影音|像你們|晨嵐/.test(value)) return growthTemplates["ig-cover-reply"];
+        return `可以～翻唱可以先從半首短版開始。\n\n如果是用去人聲或既有伴奏錄唱，半首 9,800，包含錄唱、基本修音、混音、母帶和簡易影像，含錄音室 2 小時。\n\n如果想重新編曲，半首是 16,000 起。你可以先把歌名傳給我，我幫你看比較適合哪一種。`;
+      }
+      if (serviceType === "podcast") return growthTemplates["podcast-reply"];
+      if (serviceType === "recording") return `可以～錄音目前 1 小時 1,500；兩小時以上是 1,200 / hr。\n\n想先確認你是要錄人聲、Podcast、配音，還是其他內容？預計幾個人、想錄多久呢？`;
+      if (serviceType === "mixing") return `可以，我先幫你確認混音方向。\n\n混音會需要聽素材狀態、軌數、風格、參考作品和期限後再評估，比較不會直接亂報價。你可以先傳 demo 或簡單說明目前素材狀態。`;
+      if (serviceType === "production") return growthTemplates["quote-handoff"];
+      return `可以～我先幫你確認需求。\n\n你想做的是翻唱、Podcast、錄音，還是完整製作呢？如果方便，也可以直接傳你想做的內容、用途和希望完成時間。`;
+    }
+
+    function renderManualLeadImport() {
+      return `
+        <form id="manualLeadForm" class="panel">
+          <h3>IG / FB 私訊匯入測試</h3>
+          <p class="muted">不用登入 IG / FB 也可以先測：把私訊文字貼進來，系統會建立小案待辦並產生建議回覆。</p>
+          <div class="grid metrics">
+            <div class="field"><label for="manualLeadSource">來源</label><select id="manualLeadSource"><option value="ig">IG</option><option value="facebook">FB</option></select></div>
+            <div class="field"><label for="manualLeadHandle">客戶名稱 / 帳號</label><input id="manualLeadHandle" placeholder="例如 @abc 或 王小姐"></div>
+          </div>
+          <div class="field"><label for="manualLeadText">私訊內容</label><textarea id="manualLeadText" required placeholder="貼上客人的 IG / FB 私訊"></textarea></div>
+          <button class="primary" type="submit">建立小案待辦</button>
+        </form>
+      `;
+    }
+
+    async function createManualLead(event) {
+      event.preventDefault();
+      const source = document.querySelector("#manualLeadSource").value;
+      const handle = document.querySelector("#manualLeadHandle").value.trim();
+      const text = document.querySelector("#manualLeadText").value.trim();
+      if (!text) return;
+      const serviceType = inferManualServiceType(text);
+      const taskType = inferManualTaskType(text, serviceType);
+      const suggestedReply = draftManualLeadReply(text, source);
+      const sourceLabel = taskLabel(taskSourceLabels, source);
+      const task = await api("/api/tasks", {
+        method: "POST",
+        body: JSON.stringify(authPayload({
+          source,
+          sourceRef: `${source}:manual:${Date.now()}`,
+          customerName: handle,
+          customerHandle: handle,
+          serviceType,
+          taskType,
+          title: `${sourceLabel} 私訊：${taskLabel(serviceTypeLabels, serviceType)}`,
+          summary: `${sourceLabel} 手動匯入。客人詢問${taskLabel(serviceTypeLabels, serviceType)}，需要人工確認後回覆。`,
+          suggestedReply,
+          status: "open",
+          priority: taskType === "quote" || serviceType === "production" ? "high" : "normal",
+          assignedTo: "boss",
+          notifyRoles: ["boss"],
+          notificationStatus: "pending",
+          followUpAt: taskNextIso(1),
+          payload: { [source]: { text, importedAt: new Date().toISOString() } }
+        }))
+      });
+      state.tasks.unshift(task);
+      state.taskFilter = "active";
+      state.taskSourceFilter = source;
+      showNotice(`已建立 ${sourceLabel} 小案待辦。`);
+      renderApp();
+      openTask(task.id);
     }
 
     function renderMarketing() {
@@ -2200,9 +2288,10 @@
         <div class="grid metrics">
           <div class="metric"><span>LINE 待辦</span><b>${metrics.line}</b></div>
           <div class="metric"><span>IG 待辦</span><b>${metrics.ig}</b></div>
-          <div class="metric"><span>Cover 線索</span><b>${metrics.cover}</b></div>
+          <div class="metric"><span>FB 待辦</span><b>${metrics.facebook}</b></div>
           <div class="metric"><span>待報價</span><b>${metrics.quote}</b></div>
         </div>
+        ${renderManualLeadImport()}
         <div class="section-title"><h3>商品化報價</h3></div>
         <div class="grid">
           ${marketingPackages.map(item => `
@@ -3862,7 +3951,7 @@
 
     function taskPayloadText(task, key) {
       const payload = task.payload || {};
-      const line = payload.line || payload.ig || payload.googleMap || {};
+      const line = payload.line || payload.ig || payload.facebook || payload.googleMap || {};
       return payload[key] || line[key] || "";
     }
 
@@ -4531,6 +4620,7 @@
     });
     document.addEventListener("submit", event => {
       if (event.target.id === "caseForm") createCase(event).catch(error => alert(error.message));
+      if (event.target.id === "manualLeadForm") createManualLead(event).catch(error => alert(error.message));
       if (event.target.id === "taskConvertForm") convertTaskToCase(event).catch(error => alert(error.message));
       if (event.target.id === "companyRecordForm") createCompanyRecord(event).catch(error => alert(error.message));
       if (event.target.id === "studioExpenseForm") updateStudioExpenseModel(event).catch(error => alert(error.message));
