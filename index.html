@@ -2218,6 +2218,40 @@
       return `可以～我先幫你確認需求。\n\n你想做的是翻唱、Podcast、錄音，還是完整製作呢？如果方便，也可以直接傳你想做的內容、用途和希望完成時間。`;
     }
 
+    const manualLeadPresets = {
+      "ig-cover": {
+        source: "ig",
+        handle: "@ig_cover_test",
+        text: "我想做像你們 IG 那種翻唱短影片，想知道多少錢？"
+      },
+      "ig-arrangement": {
+        source: "ig",
+        handle: "@ig_arrange_test",
+        text: "我想要翻唱，但是不要去人聲伴奏，要像晨嵐 IG 那種重新編曲的短影片。"
+      },
+      "fb-podcast": {
+        source: "facebook",
+        handle: "FB Podcast 測試",
+        text: "我們想做 Podcast，預計四集，每集大概 40 分鐘，想問錄音加剪輯怎麼算？"
+      },
+      "fb-production": {
+        source: "facebook",
+        handle: "FB 製作測試",
+        text: "我有一首自己的歌，想做編曲、錄音和混音，想知道大概報價跟流程。"
+      }
+    };
+
+    function fillManualLeadPreset(key) {
+      const preset = manualLeadPresets[key];
+      if (!preset) return;
+      const source = document.querySelector("#manualLeadSource");
+      const handle = document.querySelector("#manualLeadHandle");
+      const text = document.querySelector("#manualLeadText");
+      if (source) source.value = preset.source;
+      if (handle) handle.value = preset.handle;
+      if (text) text.value = preset.text;
+    }
+
     function renderManualLeadImport() {
       return `
         <form id="manualLeadForm" class="panel">
@@ -2228,6 +2262,12 @@
             <div class="field"><label for="manualLeadHandle">客戶名稱 / 帳號</label><input id="manualLeadHandle" placeholder="例如 @abc 或 王小姐"></div>
           </div>
           <div class="field"><label for="manualLeadText">私訊內容</label><textarea id="manualLeadText" required placeholder="貼上客人的 IG / FB 私訊"></textarea></div>
+          <div class="filter-row">
+            <button class="chip" type="button" data-manual-lead-preset="ig-cover">IG Cover 測試</button>
+            <button class="chip" type="button" data-manual-lead-preset="ig-arrangement">IG 重編測試</button>
+            <button class="chip" type="button" data-manual-lead-preset="fb-podcast">FB Podcast 測試</button>
+            <button class="chip" type="button" data-manual-lead-preset="fb-production">FB 製作測試</button>
+          </div>
           <button class="primary" type="submit">建立小案待辦</button>
         </form>
       `;
@@ -4461,6 +4501,9 @@
 
       const copyMarketingBtn = event.target.closest("[data-copy-marketing]");
       if (copyMarketingBtn) copyMarketing(copyMarketingBtn.dataset.copyMarketing).catch(error => alert(error.message));
+
+      const manualLeadPresetBtn = event.target.closest("[data-manual-lead-preset]");
+      if (manualLeadPresetBtn) fillManualLeadPreset(manualLeadPresetBtn.dataset.manualLeadPreset);
 
       const addSplitBtn = event.target.closest("[data-add-split-row]");
       if (addSplitBtn) addSplitRow();
