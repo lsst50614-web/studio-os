@@ -3999,6 +3999,16 @@
       return task.suggestedReply || taskPayloadText(task, "draftReply") || taskPayloadText(task, "suggestedReply") || "";
     }
 
+    function taskLineUserId(task) {
+      const payload = task.payload || {};
+      const line = payload.line && typeof payload.line === "object" ? payload.line : {};
+      return line.userId || payload.userId || "";
+    }
+
+    function canSendTaskToLine(task) {
+      return task.source === "line" && Boolean(taskLineUserId(task)) && Boolean(taskReplyText(task));
+    }
+
     function taskNextIso(days = 1) {
       const date = new Date();
       date.setDate(date.getDate() + days);
@@ -4144,6 +4154,7 @@
       if (!task) return;
       const originalText = taskPayloadText(task, "text") || taskPayloadText(task, "message") || taskPayloadText(task, "customerMessage");
       const replyText = taskReplyText(task);
+      const canSendLine = canSendTaskToLine(task);
       els.modalCode.textContent = `待辦 #${task.id} · ${task.source}`;
       els.modalTitle.textContent = task.title;
       els.modalBody.innerHTML = `
@@ -4168,13 +4179,16 @@
         <div class="task-note">
           <div class="split">
             <h3>建議回覆</h3>
-            <button class="ghost compact-action" type="button" data-copy-task-reply="${esc(task.id)}">複製</button>
+            <div class="form-actions">
+              <button class="ghost compact-action" type="button" data-copy-task-reply="${esc(task.id)}">複製</button>
+              ${canSendLine ? `<button class="primary compact-action" type="button" data-send-line-reply="${esc(task.id)}">送出到 LINE</button>` : ""}
+            </div>
           </div>
           <p class="task-reply">${esc(replyText || "目前沒有建議回覆，請先人工判斷。")}</p>
         </div>
         <div class="task-note">
           <h3>下一步</h3>
-          <p class="muted">目前採人工接手模式：系統只產生建議回覆和提醒，不會同時替你送出。請複製文案後到 LINE / IG / FB 官方後台回覆。</p>
+          <p class="muted">${canSendLine ? "目前採確認後送出：系統不會自動回覆客戶，只有你按下送出到 LINE 才會代送，送出後會排兩天後追蹤。" : "目前採人工接手模式：系統只產生建議回覆和提醒，不會同時替你送出。請複製文案後到 LINE / IG / FB 官方後台回覆。"}</p>
         </div>
         ${renderTaskConvertForm(task, originalText)}
         <div class="form-actions">
@@ -4228,6 +4242,28 @@
       }
       await navigator.clipboard.writeText(text);
       alert("已複製建議回覆，可以貼到 LINE / IG / FB 官方後台。");
+    }
+
+    async function sendTaskLineReply(id) {
+      const task = state.tasks.find(entry => String(entry.id) === String(id));
+      const text = task ? taskReplyText(task) : "";
+      if (!task || !canSendTaskToLine(task)) {
+        alert("這筆待辦目前不能直接送到 LINE，請先複製後人工回覆。");
+        return;
+      }
+      if (!confirm(`確定要把這段建議回覆送到 LINE 嗎？\n\n${text}`)) return;
+      if (state.user?.preview) {
+        alert("預覽模式不會真的送出 LINE 訊息。");
+        return;
+      }
+      const result = await api(`/api/tasks/${id}/send-line`, {
+        method: "POST",
+        body: JSON.stringify(authPayload({ text }))
+      });
+      state.tasks = state.tasks.map(entry => String(entry.id) === String(id) ? result.task : entry);
+      renderApp();
+      openTask(result.task.id);
+      alert("已送出到 LINE，這筆待辦已改成等客人並排兩天後追蹤。");
     }
 
     async function updateChecklist(id, index, checked) {
@@ -4503,6 +4539,9 @@
 
       const copyTaskBtn = event.target.closest("[data-copy-task-reply]");
       if (copyTaskBtn) copyTaskReply(copyTaskBtn.dataset.copyTaskReply).catch(error => alert(error.message));
+
+      const sendLineBtn = event.target.closest("[data-send-line-reply]");
+      if (sendLineBtn) sendTaskLineReply(sendLineBtn.dataset.sendLineReply).catch(error => alert(error.message));
 
       const copyMarketingBtn = event.target.closest("[data-copy-marketing]");
       if (copyMarketingBtn) copyMarketing(copyMarketingBtn.dataset.copyMarketing).catch(error => alert(error.message));

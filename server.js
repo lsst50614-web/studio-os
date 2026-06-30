@@ -8,6 +8,9 @@ const { Pool } = pg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const port = Number(process.env.PORT || 8080);
+const LINE_BOT_ADMIN_URL = cleanEnvUrl(process.env.LINE_BOT_ADMIN_URL || "https://clmusicbot.zeabur.app/admin/send-line-message");
+const LINE_BOT_ADMIN_TOKEN = process.env.LINE_BOT_ADMIN_TOKEN || "";
+const LINE_BOT_TIMEOUT_MS = Number(process.env.LINE_BOT_TIMEOUT_MS || 8000);
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || process.env.POSTGRES_CONNECTION_STRING,
@@ -392,6 +395,17 @@ function cleanText(value) {
   return String(value || "").trim();
 }
 
+function cleanEnvUrl(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  try {
+    const url = new URL(text);
+    return ["http:", "https:"].includes(url.protocol) ? url.toString() : "";
+  } catch (_error) {
+    return "";
+  }
+}
+
 function cleanKey(value) {
   return cleanText(value).toLowerCase();
 }
@@ -674,6 +688,13 @@ function cleanTimestamp(value) {
   if (!text) return null;
   const date = new Date(text);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function taskFollowUpIso(days = 2) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  date.setHours(10, 0, 0, 0);
+  return date.toISOString();
 }
 
 function normalizeTaskInput(body = {}) {
@@ -986,6 +1007,80 @@ app.patch("/api/tasks/:id", async (req, res, next) => {
       ]
     );
     res.json(toTask(rows[0]));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/tasks/:id/send-line", async (req, res, next) => {
+  try {
+    const user = await requireTaskManager(req.body?.requesterId, requestToken(req), res, "只有老闆或店長可以送出 LINE 回覆");
+    if (!user) return;
+    if (!LINE_BOT_ADMIN_URL || !LINE_BOT_ADMIN_TOKEN) {
+      res.status(500).json({ error: "LINE 送出設定尚未完成" });
+      return;
+    }
+
+    const found = await pool.query("SELECT * FROM studio_tasks WHERE id = $1", [req.params.id]);
+    if (!found.rows[0]) {
+      res.status(404).json({ error: "找不到待辦" });
+      return;
+    }
+
+    const current = toTask(found.rows[0]);
+    const linePayload = current.payload?.line && typeof current.payload.line === "object" ? current.payload.line : {};
+    const userId = cleanText(linePayload.userId || current.payload?.userId);
+    const text = cleanText(req.body?.text || current.suggestedReply || linePayload.draftReply || linePayload.suggestedReply);
+    if (current.source !== "line" || !userId) {
+      res.status(400).json({ error: "這筆待辦沒有可送出的 LINE 客戶識別" });
+      return;
+    }
+    if (!text) {
+      res.status(400).json({ error: "這筆待辦沒有建議回覆文字" });
+      return;
+    }
+
+    const response = await fetch(LINE_BOT_ADMIN_URL, {
+      method: "POST",
+      signal: AbortSignal.timeout(LINE_BOT_TIMEOUT_MS),
+      headers: {
+        "content-type": "application/json",
+        "x-admin-token": LINE_BOT_ADMIN_TOKEN
+      },
+      body: JSON.stringify({ userId, text, taskId: current.id })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.ok) {
+      res.status(502).json({ error: "LINE 送出失敗，請改用複製貼上", detail: cleanText(result.error || result.detail || response.statusText) });
+      return;
+    }
+
+    const payload = {
+      ...current.payload,
+      manualLineSend: {
+        sentAt: new Date().toISOString(),
+        sentBy: user.display_name || user.email || "boss",
+        text
+      }
+    };
+    const { rows } = await pool.query(
+      `UPDATE studio_tasks
+       SET status = 'waiting_customer',
+           assigned_to = $1,
+           notification_status = 'acknowledged',
+           follow_up_at = $2,
+           payload = $3::jsonb,
+           updated_at = now()
+       WHERE id = $4
+       RETURNING *`,
+      [
+        user.display_name || user.email || "boss",
+        taskFollowUpIso(2),
+        JSON.stringify(payload),
+        current.id
+      ]
+    );
+    res.json({ task: toTask(rows[0]), delivery: result.delivery || { delivery: "manual_push" } });
   } catch (error) {
     next(error);
   }
