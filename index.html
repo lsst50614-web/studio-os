@@ -1869,6 +1869,38 @@
       }
     ];
 
+    const growthTemplates = {
+      "ig-cover-reply": `可以～如果你是想做像我們 IG 那種短版 Cover，我先幫你分一下：
+
+9,800 是用去人聲或既有伴奏錄唱，不是重新編曲。
+如果想要像 IG 範例那種更完整、比較客製的伴奏聲音，通常會是半首重新編曲 16,000 起。
+
+你可以先傳歌名給我，還有想做半首還是整首，我幫你判斷哪個方案比較適合。`,
+      "podcast-reply": `可以～Podcast 我先幫你抓基本方向。
+
+單集 60 分鐘內、最多 4 人，錄音 1,000 / 集，剪輯 1,000 / 集，錄音加剪輯 1,500 / 集起。
+
+想先確認：你預計做幾集？每集大概幾分鐘？現場會有幾位主持或來賓？`,
+      "google-review-request": `謝謝你這次來晨嵐錄音 / 製作～如果這次體驗對你有幫助，也歡迎幫我們留一個 Google 評價。
+
+不用寫很長，簡單分享你的感受就可以，這會讓更多第一次想錄音的人比較安心。`,
+      "google-review-reply-good": `謝謝你願意留下回饋，也很開心這次在晨嵐的錄音體驗對你有幫助。之後有翻唱、錄音或 Podcast 需求，也歡迎再來找我們～`,
+      "google-review-reply-neutral": `謝謝你的回饋，我們會把這次提到的地方整理起來，讓後續錄音與製作流程更順。也謝謝你願意讓我們知道真實感受。`,
+      "follow-up-soft": `嗨～想跟你追蹤一下上次提到的需求。
+
+如果你還想做 Cover / Podcast，可以先把歌名、集數或想錄的時間傳給我；如果還在想也沒關係，我可以先幫你抓一個適合的方向。`,
+      "quote-handoff": `這個部分我會先幫你整理給製作人確認，因為會牽涉實際製作方式和報價。
+
+我先跟你確認幾個資訊：用途、期限、參考作品、目前素材狀態，以及你大概希望做到什麼程度。`
+    };
+
+    const manualGrowthFlows = [
+      { title: "IG / FB 私訊", owner: "店長先看，老闆確認報價", steps: ["看來源與需求", "複製適合回覆", "需要報價就進小案待辦", "成交後轉正式案件"] },
+      { title: "Google Map 評價", owner: "老闆 / 店長", steps: ["每週至少檢查一次", "真實客戶完案後邀請評價", "不洗評價、不假帳號", "負評先穩定回覆再內部檢討"] },
+      { title: "LINE 小案", owner: "系統提醒，老闆定案", steps: ["機器人先分流", "待辦逾時提醒", "人工確認報價", "轉正式案件"] }
+    ];
+
+
     function taskLabel(map, key) {
       return map[key] || key || "未設定";
     }
@@ -2105,7 +2137,51 @@
 
     function marketingCopy(key) {
       const plan = weeklyMarketingPlan.find(item => item.day === key || item.title === key);
-      return plan?.copy || "";
+      return plan?.copy || growthTemplates[key] || "";
+    }
+
+    function leadIdentity(task) {
+      return task.customerName || task.customerHandle || task.sourceRef || `待辦 #${task.id}`;
+    }
+
+    function leadPipeline() {
+      const map = new Map();
+      state.tasks.forEach(task => {
+        const key = leadIdentity(task);
+        const current = map.get(key) || {
+          name: key,
+          sources: new Set(),
+          services: new Set(),
+          open: 0,
+          done: 0,
+          lastAt: task.updatedAt || task.createdAt,
+          next: "先看訊息內容"
+        };
+        current.sources.add(task.source);
+        current.services.add(taskLabel(serviceTypeLabels, task.serviceType));
+        if (["open", "in_progress", "waiting_customer", "snoozed"].includes(task.status)) current.open += 1;
+        if (["done", "converted"].includes(task.status)) current.done += 1;
+        const last = new Date(current.lastAt || 0).getTime();
+        const next = new Date(task.updatedAt || task.createdAt || 0).getTime();
+        if (next >= last) {
+          current.lastAt = task.updatedAt || task.createdAt;
+          current.next = task.status === "waiting_customer" ? "等客人回覆" : task.status === "converted" ? "已轉正式案件" : task.status === "lost" ? "暫不追" : "今天內處理 / 追蹤";
+        }
+        map.set(key, current);
+      });
+      return [...map.values()].sort((a, b) => b.open - a.open || new Date(b.lastAt || 0) - new Date(a.lastAt || 0)).slice(0, 10);
+    }
+
+    function growthMetrics() {
+      const active = activeTasks();
+      return {
+        line: active.filter(task => task.source === "line").length,
+        ig: active.filter(task => task.source === "ig").length,
+        google: active.filter(task => task.source === "google_map").length,
+        cover: active.filter(task => task.serviceType === "cover").length,
+        podcast: active.filter(task => task.serviceType === "podcast").length,
+        quote: active.filter(task => ["quote", "review"].includes(task.taskType)).length
+      };
     }
 
     function renderMarketing() {
@@ -2114,12 +2190,20 @@
         renderApp();
         return;
       }
+      const metrics = growthMetrics();
+      const leads = leadPipeline();
       els.viewRoot.innerHTML = `
         <div class="panel">
-          <h2>本週主軸：把服務包成一般人聽得懂的商品</h2>
-          <p class="muted">先主推翻唱短版與 Podcast 入門，製作案保留人工報價。原則是輕鬆、自然、不要壓迫；每篇都只問一個下一步。</p>
+          <h2>成長中控台</h2>
+          <p class="muted">目標是把服務包成一般人聽得懂的商品，先把快速小案拉穩：翻唱、Podcast、錄音詢問先成交，製作案保留人工報價。</p>
         </div>
-        <div class="section-title"><h3>主推商品</h3></div>
+        <div class="grid metrics">
+          <div class="metric"><span>LINE 待辦</span><b>${metrics.line}</b></div>
+          <div class="metric"><span>IG 待辦</span><b>${metrics.ig}</b></div>
+          <div class="metric"><span>Cover 線索</span><b>${metrics.cover}</b></div>
+          <div class="metric"><span>待報價</span><b>${metrics.quote}</b></div>
+        </div>
+        <div class="section-title"><h3>商品化報價</h3></div>
         <div class="grid">
           ${marketingPackages.map(item => `
             <div class="record-row">
@@ -2131,6 +2215,51 @@
                 <span class="badge">${esc(item.price)}</span>
               </div>
               <p class="muted">${esc(item.note)}</p>
+            </div>
+          `).join("")}
+        </div>
+        <div class="section-title"><h3>小案 CRM</h3><button class="ghost compact-action" type="button" data-page="tasks">看待辦</button></div>
+        <div class="grid">
+          ${leads.length ? leads.map(lead => `
+            <div class="record-row">
+              <div class="split">
+                <div>
+                  <h3>${esc(lead.name)}</h3>
+                  <p class="small">${esc([...lead.sources].join(" / "))} · ${esc([...lead.services].join(" / "))}</p>
+                </div>
+                <span class="badge ${lead.open ? "status-high" : "status-normal"}">${lead.open ? `${lead.open} 待處理` : "已整理"}</span>
+              </div>
+              <p class="muted">下一步：${esc(lead.next)} · 最後更新 ${esc(taskDate(lead.lastAt))}</p>
+            </div>
+          `).join("") : emptyPanel("目前沒有小案線索。")}
+        </div>
+        <div class="section-title"><h3>IG / FB 手動流程</h3></div>
+        <div class="grid">
+          ${manualGrowthFlows.map(flow => `
+            <div class="record-row">
+              <h3>${esc(flow.title)}</h3>
+              <p class="small">負責：${esc(flow.owner)}</p>
+              <p class="muted">${esc(flow.steps.join(" → "))}</p>
+            </div>
+          `).join("")}
+        </div>
+        <div class="section-title"><h3>常用回覆</h3></div>
+        <div class="grid">
+          ${Object.entries(growthTemplates).map(([key, text]) => `
+            <div class="record-row">
+              <div class="split">
+                <h3>${esc({
+                  "ig-cover-reply": "IG Cover 詢問",
+                  "podcast-reply": "Podcast 詢問",
+                  "google-review-request": "邀請 Google 評價",
+                  "google-review-reply-good": "Google 好評回覆",
+                  "google-review-reply-neutral": "Google 中性回覆",
+                  "follow-up-soft": "溫和追蹤",
+                  "quote-handoff": "報價交接"
+                }[key] || key)}</h3>
+                <button class="ghost compact-action" type="button" data-copy-marketing="${esc(key)}">複製</button>
+              </div>
+              <p class="task-reply">${esc(text)}</p>
             </div>
           `).join("")}
         </div>
@@ -2150,8 +2279,8 @@
           `).join("")}
         </div>
         <div class="panel">
-          <h3>回覆原則</h3>
-          <p class="muted">翻唱一定要分清楚 9,800 是去人聲 / 既有伴奏，不是重新編曲。看到「像你們 IG 那種」就先提醒多數 IG 範例是重新編曲，再讓客人傳歌名判斷。</p>
+          <h3>安全線</h3>
+          <p class="muted">這一版不會自動發 IG / FB、不會洗 Google 評價、不會把客戶資料送去外部服務。所有文案都只是複製到剪貼簿，由你或店長人工貼出。</p>
         </div>
       `;
     }
