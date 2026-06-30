@@ -4174,11 +4174,11 @@
         </div>
         <div class="task-note">
           <h3>下一步</h3>
-          <p class="muted">第一版先由老闆或店長到 LINE / IG 官方帳號人工回覆。之後串接 API 後，這裡會升級成確認送出的審核畫面。</p>
+          <p class="muted">目前採人工接手模式：系統只產生建議回覆和提醒，不會同時替你送出。請複製文案後到 LINE / IG / FB 官方後台回覆。</p>
         </div>
         ${renderTaskConvertForm(task, originalText)}
         <div class="form-actions">
-          <button class="ghost" type="button" data-task-status="in_progress" data-task-id="${esc(task.id)}">開始處理</button>
+          <button class="ghost" type="button" data-task-status="in_progress" data-task-id="${esc(task.id)}">我接手</button>
           <button class="ghost" type="button" data-task-status="waiting_customer" data-task-id="${esc(task.id)}">等客人</button>
         </div>
         <div class="form-actions">
@@ -4227,7 +4227,7 @@
         return;
       }
       await navigator.clipboard.writeText(text);
-      alert("已複製建議回覆，可以貼到 LINE / IG 官方後台。");
+      alert("已複製建議回覆，可以貼到 LINE / IG / FB 官方後台。");
     }
 
     async function updateChecklist(id, index, checked) {
@@ -4487,7 +4487,12 @@
       if (taskStatusBtn) {
         const status = taskStatusBtn.dataset.taskStatus;
         const followUpAt = status === "waiting_customer" ? taskNextIso(2) : null;
-        updateTask(taskStatusBtn.dataset.taskId, { status, followUpAt }).catch(error => alert(error.message));
+        const patch = { status, followUpAt };
+        if (["in_progress", "done", "waiting_customer"].includes(status)) {
+          patch.notificationStatus = "acknowledged";
+          patch.assignedTo = state.user?.label || state.user?.employee || "boss";
+        }
+        updateTask(taskStatusBtn.dataset.taskId, patch).catch(error => alert(error.message));
       }
 
       const taskSnoozeBtn = event.target.closest("[data-task-snooze]");
